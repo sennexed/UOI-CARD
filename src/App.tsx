@@ -91,7 +91,7 @@ const PRESETS: { name: string; tag: string; data: RawPayloadInput }[] = [
       fullName: '✨⚡ Rohan [UOI] ~ Verma 🔥👑',
       robloxUsername: '🔥Rohan_Pro__99!!#$',
       robloxUserId: 'ID# 9988221144 ABC',
-      gender: 'male (he/him)',
+      gender: 'Male',
       roleIds: ['999999999999999999'], // Non-admin -> Community Member
     },
   },
@@ -127,6 +127,11 @@ export default function App() {
     setRobloxAvatar(avatarDataUrl);
   };
 
+  // Compute roles this citizen actually possesses from active role IDs
+  const citizenHeldRoles = useMemo(() => {
+    return ROLE_HIERARCHY.filter((role) => input.roleIds.includes(role.id.trim()));
+  }, [input.roleIds]);
+
   // Parse and process payload into strict schema
   const processedData: ProcessedCardData = useMemo(() => {
     return processUoiPayload(input);
@@ -144,7 +149,7 @@ export default function App() {
       .split(/[\n,]+/)
       .map((id) => id.trim())
       .filter((id) => id.length > 0);
-    setInput((prev) => ({ ...prev, roleIds: parsedIds }));
+    setInput((prev) => ({ ...prev, roleIds: parsedIds, selectedRank: undefined }));
   };
 
   // Toggle role from reference list
@@ -155,7 +160,7 @@ export default function App() {
     } else {
       newRoles = [...input.roleIds, roleId];
     }
-    setInput((prev) => ({ ...prev, roleIds: newRoles }));
+    setInput((prev) => ({ ...prev, roleIds: newRoles, selectedRank: undefined }));
     setRawRoleIdsText(newRoles.join(', '));
   };
 
@@ -362,6 +367,40 @@ export default function App() {
                 />
                 <span className="text-[10px] text-slate-500">
                   Evaluated against hierarchy: 123456789012345678 (President) &gt; 234567890123456789 (PM) &gt; 345678901234567890 (Senator)...
+                </span>
+              </div>
+
+              {/* Field 6: Rank Option (Strictly restricted to roles this citizen possesses) */}
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs font-medium text-slate-300 flex items-center justify-between">
+                  <span>6. Rank Option (Citizen's Roles Only)</span>
+                  <span className="text-[10px] text-emerald-400 font-mono">
+                    {citizenHeldRoles.length > 0
+                      ? `${citizenHeldRoles.length} Held Role${citizenHeldRoles.length > 1 ? 's' : ''}`
+                      : 'Community Member (Default)'}
+                  </span>
+                </label>
+                {citizenHeldRoles.length > 0 ? (
+                  <select
+                    id="select-citizen-rank"
+                    value={processedData.assignedRank}
+                    onChange={(e) => setInput((prev) => ({ ...prev, selectedRank: e.target.value }))}
+                    className="w-full bg-slate-950 border border-emerald-500/50 rounded-lg px-3 py-2 text-sm text-amber-300 font-semibold focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500 font-mono cursor-pointer"
+                  >
+                    {citizenHeldRoles.map((role) => (
+                      <option key={role.id} value={role.name} className="bg-slate-950 text-slate-200">
+                        {role.name} (Tier {role.tierLevel} - {role.title})
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <div className="w-full bg-slate-950/80 border border-dashed border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-400 flex items-center justify-between">
+                    <span className="text-slate-300 font-medium">COMMUNITY MEMBER</span>
+                    <span className="text-[10px] text-slate-500 italic">Universal tier (no admin roles held)</span>
+                  </div>
+                )}
+                <span className="text-[10px] text-slate-500">
+                  Matches Discord bot security: the rank option is strictly constrained to roles this citizen actually holds.
                 </span>
               </div>
             </div>

@@ -1,9 +1,12 @@
+export type AllowedGender = 'Male' | 'Female' | 'Other';
+
 export interface RawPayloadInput {
   fullName: string;
   robloxUsername: string;
   robloxUserId: string;
-  gender: string;
+  gender: AllowedGender | string;
   roleIds: string[];
+  selectedRank?: string;
 }
 
 export interface ProcessedCardData {
@@ -116,6 +119,7 @@ export interface CardRecord {
     robloxUserId: string;
     fullName: string;
     assignedRank: string;
+    gender?: string;
   };
   issuedBy: CardAuditActor;
   issuedAt: string;

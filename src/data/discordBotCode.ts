@@ -351,7 +351,12 @@ module.exports = {
       sub.setName('promote')
         .setDescription('Promote a citizen to a new rank tier (Officer Only)')
         .addUserOption(opt => opt.setName('citizen').setDescription('Target member').setRequired(true))
-        .addStringOption(opt => opt.setName('rank').setDescription('Target rank tier').setRequired(true))
+        .addStringOption(opt =>
+          opt.setName('rank')
+            .setDescription('Target rank tier (server roles)')
+            .setAutocomplete(true)
+            .setRequired(true)
+        )
         .addStringOption(opt => opt.setName('reason').setDescription('Promotion justification'))
     )
     // 8. /card revoke
@@ -559,8 +564,11 @@ module.exports = {
     // COMMAND 1: /card generate (1 card per person)
     if (sub === 'generate') {
       await interaction.deferReply();
-      const targetMember = interaction.options.getMember('citizen');
       const targetUser = interaction.options.getUser('citizen');
+      let targetMember = interaction.options.getMember('citizen');
+      if (!targetMember && interaction.guild && targetUser) {
+        targetMember = await interaction.guild.members.fetch(targetUser.id).catch(() => null);
+      }
       const robloxQuery = interaction.options.getString('roblox');
       const fullName = interaction.options.getString('fullname');
       const gender = interaction.options.getString('gender') || 'Other';
@@ -863,33 +871,48 @@ module.exports = {
     const focusedOption = interaction.options.getFocused(true);
 
     if (focusedOption.name === 'rank') {
-      const targetUserId = interaction.options.get('citizen')?.value;
+      const sub = interaction.options.getSubcommand(false);
       let choices = [];
 
-      if (targetUserId && interaction.guild) {
-        try {
-          const member = await interaction.guild.members.fetch(targetUserId).catch(() => null);
-          if (member && member.roles) {
-            // STRICT REQUIREMENT: Only show the roles that this particular person has in the rank option
-            const memberRoles = member.roles.cache
-              .filter(r => r.id !== interaction.guild.id && !r.managed)
-              .sort((a, b) => b.position - a.position);
+      if (sub === 'promote' && interaction.guild) {
+        // For /card promote: show server roles to promote to
+        const guildRoles = interaction.guild.roles.cache
+          .filter(r => r.id !== interaction.guild.id && !r.managed)
+          .sort((a, b) => b.position - a.position);
+        choices = guildRoles.map(r => ({
+          name: r.name,
+          value: r.name.toUpperCase(),
+        }));
+      } else {
+        // For /card generate: STRICT REQUIREMENT - Only show the roles that this particular person has
+        const targetUserId = interaction.options.get('citizen')?.value;
 
-            choices = memberRoles.map(r => ({
-              name: r.name,
-              value: r.name.toUpperCase(),
-            }));
+        if (targetUserId && interaction.guild) {
+          try {
+            const member = interaction.guild.members.cache.get(targetUserId) ||
+              await interaction.guild.members.fetch(targetUserId).catch(() => null);
+            if (member && member.roles) {
+              // STRICT REQUIREMENT: Only show the roles that this particular person has in the rank option
+              const memberRoles = member.roles.cache
+                .filter(r => r.id !== interaction.guild.id && !r.managed)
+                .sort((a, b) => b.position - a.position);
+
+              choices = memberRoles.map(r => ({
+                name: r.name,
+                value: r.name.toUpperCase(),
+              }));
+            }
+          } catch (err) {
+            console.warn('[UOI Bot] Failed to fetch citizen roles for autocomplete:', err.message);
           }
-        } catch (err) {
-          console.warn('[UOI Bot] Failed to fetch citizen roles for autocomplete:', err.message);
         }
-      }
 
-      if (choices.length === 0) {
-        if (!targetUserId) {
-          choices = [{ name: '⚠️ Select the citizen option first to view their roles', value: 'COMMUNITY MEMBER' }];
-        } else {
-          choices = [{ name: 'COMMUNITY MEMBER (Default)', value: 'COMMUNITY MEMBER' }];
+        if (choices.length === 0) {
+          if (!targetUserId) {
+            choices = [{ name: '⚠️ Select the citizen option first to view their roles', value: 'COMMUNITY MEMBER' }];
+          } else {
+            choices = [{ name: 'COMMUNITY MEMBER (Default - No special roles held)', value: 'COMMUNITY MEMBER' }];
+          }
         }
       }
 

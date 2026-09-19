@@ -353,7 +353,7 @@ async function startServer() {
       robloxUserId: issuedTo.robloxUserId || '',
       fullName: issuedTo.fullName,
       assignedRank: issuedTo.assignedRank,
-      gender: issuedTo.gender || 'Not Specified',
+      gender: ['Male', 'Female'].includes(issuedTo.gender) ? issuedTo.gender : (issuedTo.gender?.toLowerCase() === 'female' ? 'Female' : issuedTo.gender?.toLowerCase() === 'male' ? 'Male' : 'Other'),
     };
 
     // STRICT 1 CARD PER PERSON CHECK:

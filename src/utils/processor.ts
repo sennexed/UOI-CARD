@@ -26,22 +26,45 @@ export function sanitizeNumericalId(input: string): string {
 }
 
 /**
- * Resolves the single highest matching role rank from the official administrative hierarchy.
- * Returns the UPPERCASE rank name, or "COMMUNITY MEMBER" if no match found.
+ * Normalizes any gender input strictly to 'Male', 'Female', or 'Other'
  */
-export function resolveAssignedRank(roleIds: string[]): string {
+export function normalizeGender(input: string): 'Male' | 'Female' | 'Other' {
+  if (!input) return 'Other';
+  const clean = input.trim().toUpperCase();
+  if (clean.includes('FEMALE') || clean === 'F') return 'Female';
+  if (clean.includes('MALE') || clean === 'M') return 'Male';
+  return 'Other';
+}
+
+/**
+ * Resolves the role rank for a citizen:
+ * - If selectedRank is provided AND the citizen actually possesses that role, returns it.
+ * - Otherwise, automatically defaults to the highest ranking role this citizen holds.
+ * - If no administrative roles are held, defaults to "COMMUNITY MEMBER".
+ */
+export function resolveAssignedRank(roleIds: string[], selectedRank?: string): string {
   if (!Array.isArray(roleIds) || roleIds.length === 0) {
     return DEFAULT_RANK;
   }
 
-  // Find the highest ranking match in strict order of hierarchy definition
-  for (const role of ROLE_HIERARCHY) {
-    if (roleIds.includes(role.id.trim())) {
-      return role.name;
+  // Find all matching roles this citizen possesses according to hierarchy
+  const citizenRoles = ROLE_HIERARCHY.filter((role) => roleIds.includes(role.id.trim()));
+
+  if (citizenRoles.length === 0) {
+    return DEFAULT_RANK;
+  }
+
+  // If a specific rank from their held roles was selected, verify they actually possess it
+  if (selectedRank) {
+    const requested = selectedRank.trim().toUpperCase();
+    const matched = citizenRoles.find((r) => r.name.toUpperCase() === requested);
+    if (matched) {
+      return matched.name;
     }
   }
 
-  return DEFAULT_RANK;
+  // Default to the single highest ranking match in strict order of hierarchy definition
+  return citizenRoles[0].name;
 }
 
 /**
@@ -51,15 +74,15 @@ export function processUoiPayload(input: RawPayloadInput): ProcessedCardData {
   const sanitizedFullName = sanitizeText(input.fullName || input.robloxUsername || 'UNSPECIFIED MEMBER');
   const sanitizedRobloxUsername = sanitizeText(input.robloxUsername || 'UNKNOWN_USER');
   const sanitizedUserId = sanitizeNumericalId(input.robloxUserId) || '0000000000';
-  const sanitizedGender = sanitizeText(input.gender || 'NOT SPECIFIED');
-  const assignedRank = resolveAssignedRank(input.roleIds || []);
+  const strictGender = normalizeGender(input.gender);
+  const assignedRank = resolveAssignedRank(input.roleIds || [], input.selectedRank);
 
   return {
     status: 'SUCCESS',
     fullName: sanitizedFullName,
     robloxUsername: sanitizedRobloxUsername,
     robloxUserId: sanitizedUserId,
-    gender: sanitizedGender,
+    gender: strictGender.toUpperCase(),
     assignedRank: assignedRank,
     roleIds: input.roleIds || [],
   };
