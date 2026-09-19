@@ -163,14 +163,44 @@ export function CanvasIdCard({
     };
   }, [loadImageFromDataUrl]);
 
-  // Handle template file upload & persist
+  // Handle template file upload & persist & sync to server
   const loadTemplateFromFile = (file: File) => {
     setTemplateFileName(file.name);
     loadImageFile(file, (img, dataUrl) => {
       setTemplateImg(img);
       setTemplateLoaded(true);
       saveStoredImage('card_template', dataUrl);
+      // Automatically sync to server filesystem so template.png exists for bot
+      fetch('/api/template', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ dataUrl }),
+      }).catch((err) => console.warn('Sync template to server error:', err));
     });
+  };
+
+  // Export clean permanent template.png for Discord bot
+  const exportTemplateImage = async () => {
+    const savedTemplate = await getStoredImage('card_template');
+    let url = savedTemplate;
+    if (!url && templateImg) {
+      const offCanvas = document.createElement('canvas');
+      offCanvas.width = templateImg.naturalWidth || 1200;
+      offCanvas.height = templateImg.naturalHeight || 900;
+      const offCtx = offCanvas.getContext('2d');
+      if (offCtx) {
+        offCtx.drawImage(templateImg, 0, 0);
+        url = offCanvas.toDataURL('image/png');
+      }
+    }
+    if (url) {
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'template.png';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    }
   };
 
   // Handle avatar upload & persist
@@ -602,18 +632,28 @@ All official Union emblems, national ribbon, and barcode remain genuine.
           </button>
 
           {templateLoaded && (
-            <button
-              onClick={async () => {
-                await removeStoredImage('card_template');
-                setTemplateImg(null);
-                setTemplateLoaded(false);
-                setTemplateFileName('');
-              }}
-              className="p-1.5 text-slate-500 hover:text-rose-400 cursor-pointer"
-              title="Reset template"
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-            </button>
+            <>
+              <button
+                onClick={exportTemplateImage}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-amber-500/40 bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 font-medium cursor-pointer transition-all"
+                title="Download clean permanent template as template.png to upload directly into your Discord bot / WispByte files"
+              >
+                <Download className="w-3.5 h-3.5 text-amber-400" />
+                <span>Export template.png for Bot</span>
+              </button>
+              <button
+                onClick={async () => {
+                  await removeStoredImage('card_template');
+                  setTemplateImg(null);
+                  setTemplateLoaded(false);
+                  setTemplateFileName('');
+                }}
+                className="p-1.5 text-slate-500 hover:text-rose-400 cursor-pointer"
+                title="Reset template"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            </>
           )}
 
           {/* Upload Member Avatar Button */}

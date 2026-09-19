@@ -1,11 +1,14 @@
-import { SlashCommandBuilder, EmbedBuilder, AttachmentBuilder, PermissionFlagsBits } from 'discord.js';
-import { createCanvas, loadImage } from '@napi-rs/canvas';
-import fs from 'fs';
-import path from 'path';
+export const discordJsCode = `// ==========================================
+// UNION OF INDIANS (UOI) DISCORD.JS COMMAND HANDLERS
+// WITH PERSISTENT JSON DATABASE & PER-SERVER TEMPLATES
+// ==========================================
 
-// ========================================================
-// PERSISTENT DATABASE & TEMPLATE MANAGEMENT
-// ========================================================
+const { SlashCommandBuilder, EmbedBuilder, AttachmentBuilder, PermissionFlagsBits } = require('discord.js');
+const { createCanvas, loadImage } = require('@napi-rs/canvas');
+const fs = require('fs');
+const path = require('path');
+
+// 1. Persistent Storage (Zero-dependency JSON DB & Server Template Storage)
 const DATA_DIR = path.join(process.cwd(), 'data');
 const TEMPLATES_DIR = path.join(process.cwd(), 'templates');
 const DB_FILE = path.join(DATA_DIR, 'cards.json');
@@ -30,7 +33,7 @@ function loadDatabase() {
       return parsed;
     }
   } catch (err) {
-    console.error('[UOI Bot] Error reading database:', err.message);
+    console.error('[UOI Bot] Error loading database:', err.message);
   }
   return { cards: {}, serToUser: {} };
 }
@@ -44,17 +47,17 @@ function saveDatabase(db) {
   }
 }
 
-// Helper: Resolve Roblox User info and Avatar URL
+// 2. Fetch Roblox user details & 720x720 avatar thumbnail
 async function fetchRobloxUserData(query) {
   try {
     let userId = null;
     let username = null;
     let displayName = null;
 
-    if (/^\d+$/.test(query.trim())) {
+    if (/^\\d+$/.test(query.trim())) {
       userId = parseInt(query.trim(), 10);
       try {
-        const uResp = await fetch(`https://users.roblox.com/v1/users/${userId}`);
+        const uResp = await fetch(\`https://users.roblox.com/v1/users/\${userId}\`);
         if (uResp.ok) {
           const uJson = await uResp.json();
           username = uJson.name;
@@ -84,7 +87,7 @@ async function fetchRobloxUserData(query) {
     }
 
     const thumbResp = await fetch(
-      `https://thumbnails.roblox.com/v1/users/avatar?userIds=${userId}&size=720x720&format=Png&isCircular=false`
+      \`https://thumbnails.roblox.com/v1/users/avatar?userIds=\${userId}&size=720x720&format=Png&isCircular=false\`
     );
     let avatarUrl = null;
     if (thumbResp.ok) {
@@ -99,45 +102,30 @@ async function fetchRobloxUserData(query) {
       avatarUrl,
     };
   } catch (err) {
-    console.warn('[UOI Bot] Roblox user fetch error:', err.message);
+    console.warn('[UOI Bot] Roblox user fetch warning:', err.message);
     return { userId: null, username: query, avatarUrl: null };
   }
 }
 
-// Helper: Find or download the active template (strictly 1 template per server)
+// 3. Resolve Template Image (Strictly 1 template per server)
 async function resolveTemplateImage(guildId) {
   ensureDirectories();
 
-  // 1. Server-specific template check (1 template per server)
+  // Check server-specific template (1 template per server)
   if (guildId) {
-    const serverFiles = [
-      path.join(TEMPLATES_DIR, `${guildId}.png`),
-      path.join(TEMPLATES_DIR, `${guildId}.jpg`),
-      path.join(TEMPLATES_DIR, `${guildId}.jpeg`),
-    ];
-    for (const f of serverFiles) {
-      if (fs.existsSync(f)) {
+    for (const ext of ['png', 'jpg', 'jpeg']) {
+      const sp = path.join(TEMPLATES_DIR, \`\${guildId}.\${ext}\`);
+      if (fs.existsSync(sp)) {
         try {
-          const img = await loadImage(f);
-          return { img, source: `Server Template (${guildId})` };
+          const img = await loadImage(sp);
+          return { img, source: \`Server Template (\${guildId})\` };
         } catch (_) {}
       }
     }
   }
 
-  // 2. Global fallback candidates
-  const candidateFiles = [
-    'template.png',
-    'template.jpg',
-    'template.jpeg',
-    './template.png',
-    './template.jpg',
-    'public/template.png',
-    'public/template.jpg',
-    path.join(TEMPLATES_DIR, 'default.png'),
-  ];
-
-  for (const filename of candidateFiles) {
+  // Global fallback candidates
+  for (const filename of ['template.png', 'template.jpg', './template.png', './template.jpg', 'public/template.png']) {
     try {
       if (fs.existsSync(filename)) {
         const img = await loadImage(filename);
@@ -146,11 +134,10 @@ async function resolveTemplateImage(guildId) {
     } catch (_) {}
   }
 
-  // 3. Environment URL check
+  // TEMPLATE_URL env variable check
   const envUrl = process.env.TEMPLATE_URL || process.env.CARD_TEMPLATE_URL;
   if (envUrl) {
     try {
-      console.log(`[UOI Bot] Downloading template from TEMPLATE_URL: ${envUrl}`);
       const resp = await fetch(envUrl);
       if (resp.ok) {
         const arrayBuffer = await resp.arrayBuffer();
@@ -159,15 +146,13 @@ async function resolveTemplateImage(guildId) {
         const img = await loadImage(buffer);
         return { img, source: 'TEMPLATE_URL (saved as template.png)' };
       }
-    } catch (err) {
-      console.warn('[UOI Bot] Failed to fetch TEMPLATE_URL:', err.message);
-    }
+    } catch (_) {}
   }
 
   return { img: null, source: null };
 }
 
-// Helper: Render official 1200x900 UOI Citizen ID Card
+// 4. Render 1200x900 High-Resolution Citizen ID Card
 async function renderCardImage({
   guildId,
   fullName,
@@ -185,7 +170,6 @@ async function renderCardImage({
   const templateLoaded = !!templateImg;
 
   if (templateLoaded) {
-    // 1. OFFICIAL PERMANENT TEMPLATE
     ctx.drawImage(templateImg, 0, 0, 1200, 900);
 
     // Top-Right Serial ID
@@ -221,7 +205,7 @@ async function renderCardImage({
     const fieldX = 472;
     const fieldValues = [
       { val: fullName, textY: 358 },
-      { val: robloxUsername ? `@${robloxUsername}` : '', textY: 446 },
+      { val: robloxUsername ? \`@\${robloxUsername}\` : '', textY: 446 },
       { val: robloxUserId || '', textY: 534 },
       { val: gender || '', textY: 622 },
       { val: assignedRank || '', textY: 710 },
@@ -252,12 +236,10 @@ async function renderCardImage({
         ctx.clip();
         ctx.drawImage(avatarImg, photoX, photoY, photoW, photoH);
         ctx.restore();
-      } catch (err) {
-        console.warn('[UOI Bot] Could not load avatar image:', err.message);
-      }
+      } catch (_) {}
     }
   } else {
-    // 2. FALLBACK DESIGN (Only if template image has not yet been set)
+    // Fallback graphics
     const bgGrad = ctx.createLinearGradient(0, 0, 1200, 900);
     bgGrad.addColorStop(0, '#0a0f1d');
     bgGrad.addColorStop(0.5, '#070b16');
@@ -279,7 +261,7 @@ async function renderCardImage({
 
     const fields = [
       { label: 'FULL CITIZEN NAME', value: fullName },
-      { label: 'ROBLOX USERNAME', value: robloxUsername ? `@${robloxUsername}` : 'UNLINKED' },
+      { label: 'ROBLOX USERNAME', value: robloxUsername ? \`@\${robloxUsername}\` : 'UNLINKED' },
       { label: 'ROBLOX USER ID', value: robloxUserId || 'N/A' },
       { label: 'GENDER', value: gender || 'N/A' },
       { label: 'RANK / ROLE', value: assignedRank || 'COMMUNITY MEMBER' },
@@ -307,102 +289,77 @@ async function renderCardImage({
   };
 }
 
-export const cardCommand = {
+module.exports = {
   data: new SlashCommandBuilder()
     .setName('card')
     .setDescription('Official UOI Identification System')
-    // 1. /card generate (1 card per person)
-    .addSubcommand((sub) =>
-      sub
-        .setName('generate')
+    // 1. /card generate (1 card per citizen)
+    .addSubcommand(sub =>
+      sub.setName('generate')
         .setDescription('Issue an official UOI identification card (1 card per citizen)')
-        .addUserOption((opt) =>
-          opt.setName('citizen').setDescription('Discord member to receive the card').setRequired(true)
+        .addUserOption(opt => opt.setName('citizen').setDescription('Discord member to receive the card').setRequired(true))
+        .addStringOption(opt => opt.setName('roblox').setDescription('Roblox Username or numerical ID').setRequired(true))
+        .addStringOption(opt => opt.setName('fullname').setDescription('Full Citizen Name').setRequired(true))
+        .addStringOption(opt =>
+          opt.setName('gender')
+            .setDescription('Select citizen gender')
+            .setRequired(true)
+            .addChoices(
+              { name: 'Male', value: 'Male' },
+              { name: 'Female', value: 'Female' },
+              { name: 'Other', value: 'Other' }
+            )
         )
-        .addStringOption((opt) =>
-          opt.setName('roblox').setDescription('Roblox Username or numerical ID').setRequired(true)
-        )
-        .addStringOption((opt) =>
-          opt.setName('fullname').setDescription('Full Citizen Name').setRequired(true)
-        )
-        .addStringOption((opt) =>
-          opt.setName('gender').setDescription('Gender').setRequired(true)
-        )
-        .addStringOption((opt) =>
-          opt.setName('rank').setDescription('Rank / Role (e.g. PRESIDENT, PRIME MINISTER, COMMUNITY MEMBER)')
+        .addStringOption(opt =>
+          opt.setName('rank')
+            .setDescription('Rank / Role tier (only shows roles this citizen possesses)')
+            .setAutocomplete(true)
         )
     )
-    // 2. /card show (NEW: Pulls card of user from database)
-    .addSubcommand((sub) =>
-      sub
-        .setName('show')
+    // 2. /card show (NEW: View card from database)
+    .addSubcommand(sub =>
+      sub.setName('show')
         .setDescription('Display an official UOI ID card from the database')
-        .addUserOption((opt) =>
-          opt.setName('citizen').setDescription('Target member to look up (leave empty to view your own card)')
-        )
+        .addUserOption(opt => opt.setName('citizen').setDescription('Target member to view (leave empty to view your own card)'))
     )
     // 3. /card set-template (1 template per server)
-    .addSubcommand((sub) =>
-      sub
-        .setName('set-template')
-        .setDescription('Upload or update this server\'s official card template (1 per server)')
-        .addAttachmentOption((opt) =>
-          opt.setName('image').setDescription('Attach the official template image (PNG or JPG)')
-        )
-        .addStringOption((opt) =>
-          opt.setName('url').setDescription('Or paste a direct image URL (Discord CDN, Imgur, etc.)')
-        )
+    .addSubcommand(sub =>
+      sub.setName('set-template')
+        .setDescription('Upload or update this server\\\'s official card template (1 per server)')
+        .addAttachmentOption(opt => opt.setName('image').setDescription('Attach the official template PNG/JPG'))
+        .addStringOption(opt => opt.setName('url').setDescription('Or paste a direct image URL'))
     )
     // 4. /card view-template
-    .addSubcommand((sub) =>
-      sub
-        .setName('view-template')
+    .addSubcommand(sub =>
+      sub.setName('view-template')
         .setDescription('View the current active card template for this server')
     )
     // 5. /card verify [serial_id]
-    .addSubcommand((sub) =>
-      sub
-        .setName('verify')
+    .addSubcommand(sub =>
+      sub.setName('verify')
         .setDescription('Verify the authenticity of an issued UOI card serial ID in database')
-        .addStringOption((opt) =>
-          opt.setName('serial').setDescription('e.g. UOI-2026-839201').setRequired(true)
-        )
+        .addStringOption(opt => opt.setName('serial').setDescription('e.g. UOI-2026-839201').setRequired(true))
     )
     // 6. /card inspect @user
-    .addSubcommand((sub) =>
-      sub
-        .setName('inspect')
-        .setDescription('Inspect citizen dossier, card status, and record history')
-        .addUserOption((opt) =>
-          opt.setName('user').setDescription('Target Discord user').setRequired(true)
-        )
+    .addSubcommand(sub =>
+      sub.setName('inspect')
+        .setDescription('Inspect citizen dossier, card status, and rank history')
+        .addUserOption(opt => opt.setName('user').setDescription('Target Discord user').setRequired(true))
     )
     // 7. /card promote
-    .addSubcommand((sub) =>
-      sub
-        .setName('promote')
+    .addSubcommand(sub =>
+      sub.setName('promote')
         .setDescription('Promote a citizen to a new rank tier (Officer Only)')
-        .addUserOption((opt) =>
-          opt.setName('citizen').setDescription('Target member').setRequired(true)
-        )
-        .addStringOption((opt) =>
-          opt.setName('rank').setDescription('Target rank tier').setRequired(true)
-        )
-        .addStringOption((opt) =>
-          opt.setName('reason').setDescription('Promotion justification')
-        )
+        .addUserOption(opt => opt.setName('citizen').setDescription('Target member').setRequired(true))
+        .addStringOption(opt => opt.setName('rank').setDescription('Target rank tier').setRequired(true))
+        .addStringOption(opt => opt.setName('reason').setDescription('Promotion justification'))
     )
     // 8. /card revoke
-    .addSubcommand((sub) =>
-      sub
-        .setName('revoke')
+    .addSubcommand(sub =>
+      sub.setName('revoke')
         .setDescription('Revoke a citizen ID card (Security Command Only)')
-        .addStringOption((opt) =>
-          opt.setName('serial').setDescription('Serial ID to revoke').setRequired(true)
-        )
-        .addStringOption((opt) =>
-          opt.setName('reason').setDescription('Reason for revocation').setRequired(true)
-        )
+        .addStringOption(opt => opt.setName('serial').setDescription('Serial ID to revoke').setRequired(true))
+        .addStringOption(opt => opt.setName('reason').setDescription('Reason for revocation').setRequired(true))
     ),
 
   async execute(interaction) {
@@ -414,16 +371,13 @@ export const cardCommand = {
       discordTag: interaction.user.tag,
     };
 
-    // ==========================================
     // COMMAND: /card set-template (1 template per server)
-    // ==========================================
     if (sub === 'set-template') {
       await interaction.deferReply({ ephemeral: false });
 
-      // Check permission: ManageGuild or Administrator
       if (interaction.member && !interaction.member.permissions.has(PermissionFlagsBits.ManageGuild)) {
         return interaction.editReply({
-          content: '❌ **Permission Denied:** Only server administrators or members with `Manage Server` can set this server\'s official card template.',
+          content: '❌ **Permission Denied:** Only members with \`Manage Server\` permission can configure this server\\\'s official card template.',
         });
       }
 
@@ -433,17 +387,13 @@ export const cardCommand = {
 
       if (!downloadUrl) {
         return interaction.editReply({
-          content: '❌ **Please attach an image** or provide a direct image `url` when running `/card set-template`.',
+          content: '❌ **Please attach an image** or provide a direct image \`url\` when running \`/card set-template\`.',
         });
       }
 
       try {
         const resp = await fetch(downloadUrl);
-        if (!resp.ok) {
-          return interaction.editReply({
-            content: `❌ Could not download image from the provided source (HTTP ${resp.status}).`,
-          });
-        }
+        if (!resp.ok) return interaction.editReply({ content: \`❌ Could not download image (HTTP \${resp.status}).\` });
 
         const arrayBuffer = await resp.arrayBuffer();
         const buffer = Buffer.from(arrayBuffer);
@@ -451,18 +401,17 @@ export const cardCommand = {
 
         ensureDirectories();
 
-        // Enforce 1 template per server: remove any old extension and save template_<guildId>.png
+        // Enforce 1 template per server
         if (guildId) {
           for (const ext of ['png', 'jpg', 'jpeg']) {
-            const oldPath = path.join(TEMPLATES_DIR, `${guildId}.${ext}`);
+            const oldPath = path.join(TEMPLATES_DIR, \`\${guildId}.\${ext}\`);
             if (fs.existsSync(oldPath)) {
               try { fs.unlinkSync(oldPath); } catch (_) {}
             }
           }
-          fs.writeFileSync(path.join(TEMPLATES_DIR, `${guildId}.png`), buffer);
+          fs.writeFileSync(path.join(TEMPLATES_DIR, \`\${guildId}.png\`), buffer);
         }
 
-        // Also save to root template.png as fallback
         fs.writeFileSync('template.png', buffer);
         try {
           if (!fs.existsSync('public')) fs.mkdirSync('public');
@@ -471,49 +420,35 @@ export const cardCommand = {
 
         const embed = new EmbedBuilder()
           .setTitle('✅ Official Server Template Saved')
-          .setColor(0x10b981)
-          .setDescription(
-            `Successfully set the **official template** for **${interaction.guild ? interaction.guild.name : 'this server'}** (\`${testImg.width}×${testImg.height}px\`).\n` +
-            `🔒 **Policy Enforced:** Exactly **1 template per server**. Any previous server template has been superseded.\n` +
-            `All future cards generated or viewed with \`/card show\` in this server will stamp directly onto this official template!`
-          )
+          .setColor(0x10B981)
+          .setDescription(\`Successfully set the active template for **\${interaction.guild ? interaction.guild.name : 'this server'}** (\`\${testImg.width}×\${testImg.height}px\`).\\n🔒 **Policy Enforced:** Exactly **1 template per server**.\\nAll cards generated or viewed with \`/card show\` in this server will stamp directly onto this official template!\`)
           .addFields(
-            { name: 'Server ID', value: `\`${guildId || 'Global'}\``, inline: true },
-            { name: 'Storage Slot', value: guildId ? `templates/${guildId}.png` : 'template.png', inline: true },
-            { name: 'Resolution', value: `${testImg.width} × ${testImg.height} px`, inline: true }
+            { name: 'Server ID', value: \`\`\${guildId || 'Global'}\`\`, inline: true },
+            { name: 'Storage Slot', value: guildId ? \`templates/\${guildId}.png\` : 'template.png', inline: true }
           )
-          .setFooter({ text: 'Union of Indians Registry • Single-Template Server Isolation' })
+          .setFooter({ text: 'Union of Indians Registry • 1 Template Per Server' })
           .setTimestamp();
 
         const file = new AttachmentBuilder(buffer, { name: 'server-template.png' });
         embed.setImage('attachment://server-template.png');
-
         return interaction.editReply({ embeds: [embed], files: [file] });
       } catch (err) {
-        console.error('[UOI Bot] Error setting template:', err);
-        return interaction.editReply({
-          content: `❌ **Failed to process template image:** ${err.message}`,
-        });
+        return interaction.editReply({ content: \`❌ **Failed to save template:** \${err.message}\` });
       }
     }
 
-    // ==========================================
     // COMMAND: /card view-template
-    // ==========================================
     if (sub === 'view-template') {
       await interaction.deferReply({ ephemeral: true });
-
       const { img, source } = await resolveTemplateImage(guildId);
       if (!img) {
         return interaction.editReply({
-          content:
-            '⚠️ **No permanent template found for this server!**\nUse `/card set-template` with your template image attached to upload one (1 template per server).',
+          content: '⚠️ **No template found for this server!**\\nRun \`/card set-template\` with your template image attached to configure one.',
         });
       }
-
       let fileBuffer = null;
-      if (guildId && fs.existsSync(path.join(TEMPLATES_DIR, `${guildId}.png`))) {
-        fileBuffer = fs.readFileSync(path.join(TEMPLATES_DIR, `${guildId}.png`));
+      if (guildId && fs.existsSync(path.join(TEMPLATES_DIR, \`\${guildId}.png\`))) {
+        fileBuffer = fs.readFileSync(path.join(TEMPLATES_DIR, \`\${guildId}.png\`));
       } else {
         for (const f of ['template.png', 'template.jpg', 'public/template.png']) {
           if (fs.existsSync(f)) {
@@ -522,26 +457,19 @@ export const cardCommand = {
           }
         }
       }
-
       if (!fileBuffer) {
-        return interaction.editReply({
-          content: `Active template loaded from: \`${source}\` (${img.width}×${img.height}px)`,
-        });
+        return interaction.editReply({ content: \`Active template loaded from: \`\${source}\` (\${img.width}×\${img.height}px)\` });
       }
-
       const file = new AttachmentBuilder(fileBuffer, { name: 'active-template.png' });
       const embed = new EmbedBuilder()
         .setTitle('🖼️ Active Server Card Template')
-        .setColor(0x3b82f6)
-        .setDescription(`Loaded template for **${interaction.guild ? interaction.guild.name : 'this server'}**:\n• Source: \`${source}\`\n• Resolution: **${img.width}×${img.height}px**`)
+        .setColor(0x3B82F6)
+        .setDescription(\`Active template for **\${interaction.guild ? interaction.guild.name : 'this server'}**:\\n• Source: \`\${source}\`\\n• Resolution: **\${img.width}×\${img.height}px**\`)
         .setImage('attachment://active-template.png');
-
       return interaction.editReply({ embeds: [embed], files: [file] });
     }
 
-    // ==========================================
     // COMMAND: /card show (Pull card from database)
-    // ==========================================
     if (sub === 'show') {
       await interaction.deferReply();
       const targetUser = interaction.options.getUser('citizen') || interaction.user;
@@ -553,18 +481,17 @@ export const cardCommand = {
         const embed = new EmbedBuilder()
           .setTitle('🔍 UOI Central Registry Search')
           .setColor(0xEF4444)
-          .setDescription(`No active UOI Citizen ID card found in the database for <@${targetUser.id}>.`)
+          .setDescription(\`No active UOI Citizen ID Card found in the database for <@\${targetUser.id}>.\`)
           .addFields(
-            { name: 'Target Citizen', value: `<@${targetUser.id}> (\`${targetUser.tag}\`)`, inline: true },
+            { name: 'Target Citizen', value: \`<@\${targetUser.id}> (\`\${targetUser.tag}\`)\`, inline: true },
             { name: 'Registry Status', value: card?.status === 'REVOKED' ? '🔴 REVOKED' : '⚪ Unregistered', inline: true },
-            { name: 'Issuance Protocol', value: 'An authorized officer can issue a card using `/card generate`.' }
+            { name: 'Issuance Protocol', value: 'An authorized officer can issue a card using \`/card generate\`.' }
           )
           .setFooter({ text: 'Union of Indians Central Registry Database' })
           .setTimestamp();
         return interaction.editReply({ embeds: [embed] });
       }
 
-      // Render the citizen's card on demand using the server's official template
       let cardBuffer = null;
       let usedTemplate = false;
       let templateSource = null;
@@ -586,36 +513,36 @@ export const cardCommand = {
         console.error('[UOI Bot] Error rendering stored card image:', err);
       }
 
-      const fileName = `${card.serialId}.png`;
+      const fileName = \`\${card.serialId}.png\`;
       const files = [];
 
       const embed = new EmbedBuilder()
-        .setTitle(`🛡️ UOI Citizen ID Card: ${card.fullName}`)
-        .setColor(0x10b981)
-        .setDescription(`Official identity credential retrieved from database for <@${card.discordId}>`)
+        .setTitle(\`🛡️ UOI Citizen ID Card: \${card.fullName}\`)
+        .setColor(0x10B981)
+        .setDescription(\`Official identity credential retrieved from database for <@\${card.discordId}>\`)
         .addFields(
-          { name: 'Card Serial ID', value: `\`${card.serialId}\``, inline: true },
-          { name: 'Citizen', value: `<@${card.discordId}>`, inline: true },
+          { name: 'Card Serial ID', value: \`\`\${card.serialId}\`\`, inline: true },
+          { name: 'Citizen', value: \`<@\${card.discordId}>\`, inline: true },
           {
             name: 'Roblox Identity',
             value: card.robloxUserId
-              ? `[@${card.robloxUsername}](https://www.roblox.com/users/${card.robloxUserId}/profile)`
-              : `@${card.robloxUsername || 'Unlinked'}`,
+              ? \`[@\${card.robloxUsername}](https://www.roblox.com/users/\${card.robloxUserId}/profile)\`
+              : \`@\${card.robloxUsername || 'Unlinked'}\`,
             inline: true,
           },
-          { name: 'Rank Tier', value: `**${card.assignedRank}**`, inline: true },
+          { name: 'Rank Tier', value: \`**\${card.assignedRank}**\`, inline: true },
           { name: 'Gender', value: card.gender || 'N/A', inline: true },
-          { name: 'Issuing Officer', value: `<@${card.issuedBy?.discordId || card.issuedBy}>`, inline: true },
+          { name: 'Issuing Officer', value: \`<@\${card.issuedBy?.discordId || card.issuedBy}>\`, inline: true },
           {
             name: 'Issued Date',
-            value: `<t:${Math.floor(new Date(card.issuedAt).getTime() / 1000)}:f>`,
+            value: \`<t:\${Math.floor(new Date(card.issuedAt).getTime() / 1000)}:f>\`,
             inline: true,
           },
           { name: 'Registry Status', value: '🟢 ACTIVE & VERIFIED', inline: true }
         )
         .setFooter({
           text: usedTemplate
-            ? `Central Database Record • Stamped with ${templateSource}`
+            ? \`Central Database Record • Stamped with \${templateSource}\`
             : 'Central Database Record • Union of Indians',
         })
         .setTimestamp();
@@ -623,76 +550,96 @@ export const cardCommand = {
       if (cardBuffer) {
         const attachment = new AttachmentBuilder(cardBuffer, { name: fileName });
         files.push(attachment);
-        embed.setImage(`attachment://${fileName}`);
+        embed.setImage(\`attachment://\${fileName}\`);
       }
 
       return interaction.editReply({ embeds: [embed], files });
     }
 
-    // ==========================================
     // COMMAND 1: /card generate (1 card per person)
-    // ==========================================
     if (sub === 'generate') {
       await interaction.deferReply();
-
       const targetMember = interaction.options.getMember('citizen');
       const targetUser = interaction.options.getUser('citizen');
       const robloxQuery = interaction.options.getString('roblox');
       const fullName = interaction.options.getString('fullname');
-      const gender = interaction.options.getString('gender');
-      const assignedRank = (interaction.options.getString('rank') || 'COMMUNITY MEMBER').toUpperCase();
+      const gender = interaction.options.getString('gender') || 'Other';
+      
+      // Strict Role Check: only allow roles that this particular citizen possesses
+      let requestedRank = interaction.options.getString('rank');
+      let assignedRank = 'COMMUNITY MEMBER';
 
-      // STRICT RULE: Only one card generate per person!
+      if (targetMember && targetMember.roles) {
+        const memberRoles = targetMember.roles.cache
+          .filter(r => r.id !== interaction.guild.id && !r.managed)
+          .sort((a, b) => b.position - a.position);
+
+        if (!requestedRank) {
+          // Default automatically to the highest server role this citizen possesses
+          const topRole = memberRoles.first();
+          assignedRank = topRole ? topRole.name.toUpperCase() : 'COMMUNITY MEMBER';
+        } else {
+          requestedRank = requestedRank.trim().toUpperCase();
+          const hasRole = memberRoles.some(r => r.name.toUpperCase() === requestedRank);
+          if (!hasRole && requestedRank !== 'COMMUNITY MEMBER') {
+            return interaction.editReply({
+              content: \`⚠️ **Role Assignment Error**: <@\${targetUser.id}> does not hold the role **\${requestedRank}** in this server!\\\\nUnder Union security policy, the rank option is strictly restricted to roles this citizen actually possesses.\`,
+            });
+          }
+          assignedRank = requestedRank;
+        }
+      } else {
+        assignedRank = (requestedRank || 'COMMUNITY MEMBER').toUpperCase();
+      }
+
+      // STRICT RULE: Only 1 card per person
       const db = loadDatabase();
       const existingCard = db.cards[targetUser.id];
       if (existingCard && existingCard.status === 'ACTIVE') {
         const embed = new EmbedBuilder()
           .setTitle('⚠️ Card Generation Blocked: 1 Card Per Person')
-          .setColor(0xf59e0b)
+          .setColor(0xF59E0B)
           .setDescription(
-            `**<@${targetUser.id}> already possesses an active UOI Citizen Card!**\n` +
-            `Under Union regulations, each citizen is restricted to exactly **one card**.`
+            \`**<@\${targetUser.id}> already possesses an active UOI Citizen Card!**\\n\` +
+            \`Under Union regulations, each citizen is restricted to exactly **one card**.\`
           )
           .addFields(
-            { name: 'Existing Serial ID', value: `\`${existingCard.serialId}\``, inline: true },
+            { name: 'Existing Serial ID', value: \`\`\${existingCard.serialId}\`\`, inline: true },
             { name: 'Full Name', value: existingCard.fullName, inline: true },
-            { name: 'Current Rank', value: `**${existingCard.assignedRank}**`, inline: true },
-            { name: 'Roblox Username', value: `@${existingCard.robloxUsername || 'Unlinked'}`, inline: true },
+            { name: 'Current Rank', value: \`**\${existingCard.assignedRank}**\`, inline: true },
+            { name: 'Roblox Username', value: \`@\${existingCard.robloxUsername || 'Unlinked'}\`, inline: true },
             { name: 'Status', value: '🟢 ACTIVE CITIZEN', inline: true },
             {
               name: 'Issued On',
-              value: `<t:${Math.floor(new Date(existingCard.issuedAt).getTime() / 1000)}:R>`,
+              value: \`<t:\${Math.floor(new Date(existingCard.issuedAt).getTime() / 1000)}:R>\`,
               inline: true,
             }
           )
           .addFields({
             name: '📋 What to do?',
             value:
-              `• Run \`/card show citizen:@${targetUser.username}\` to display their existing registered card.\n` +
-              `• To update their rank tier, use \`/card promote\` instead.\n` +
-              `• If the previous card was lost or compromised, an authorized officer must run \`/card revoke serial:${existingCard.serialId}\` before re-issuing.`,
+              \`• Run \`/card show citizen:@\${targetUser.username}\` to view their existing registered card.\\n\` +
+              \`• Use \`/card promote\` to upgrade their rank.\\n\` +
+              \`• If the previous card was lost, an authorized officer must run \`/card revoke serial:\${existingCard.serialId}\` before re-issuing.\`,
           })
           .setFooter({ text: 'Union of Indians Registry • Strict Single-Card Enforcement' })
           .setTimestamp();
         return interaction.editReply({ embeds: [embed] });
       }
 
-      const serialId = `UOI-${new Date().getFullYear()}-${Math.floor(100000 + Math.random() * 900000)}`;
-      const serverNickname = `${fullName} [${serialId}]`;
+      const serialId = \`UOI-\${new Date().getFullYear()}-\${Math.floor(100000 + Math.random() * 900000)}\`;
+      const serverNickname = \`\${fullName} [\${serialId}]\`;
 
-      // Fetch Roblox details & avatar
       const robloxInfo = await fetchRobloxUserData(robloxQuery);
 
-      // Update nickname if bot has permissions
       try {
         if (targetMember && targetMember.manageable) {
           await targetMember.setNickname(serverNickname);
         }
       } catch (err) {
-        console.warn('[UOI Bot] Nickname update failed (role hierarchy):', err?.message);
+        console.warn('[UOI Bot] Could not update nickname due to role hierarchy limits');
       }
 
-      // Render Card Image with server's template
       let cardBuffer = null;
       let usedTemplate = false;
       let templateSource = null;
@@ -711,10 +658,10 @@ export const cardCommand = {
         usedTemplate = renderResult.usedTemplate;
         templateSource = renderResult.source;
       } catch (err) {
-        console.error('[UOI Bot] Card image rendering failed:', err);
+        console.error('[UOI Bot] Failed to generate card image:', err);
       }
 
-      // SAVE TO PERSISTENT DATABASE (1 card per person record)
+      // Save to persistent database (1 card per person)
       const newCardRecord = {
         discordId: targetUser.id,
         discordTag: targetUser.tag,
@@ -739,53 +686,49 @@ export const cardCommand = {
       db.serToUser[serialId] = targetUser.id;
       saveDatabase(db);
 
-      const fileName = `${serialId}.png`;
+      const fileName = \`\${serialId}.png\`;
       const files = [];
 
       const embed = new EmbedBuilder()
         .setTitle('🛡️ UOI Citizen ID Card Issued')
-        .setColor(usedTemplate ? 0x10b981 : 0xf59e0b)
-        .setDescription(`Official identity credential issued to <@${targetUser.id}>`)
+        .setColor(usedTemplate ? 0x10B981 : 0xF59E0B)
+        .setDescription(\`Official identity credential issued to <@\${targetUser.id}>\`)
         .addFields(
-          { name: 'Card Serial ID', value: `\`${serialId}\``, inline: true },
-          { name: 'Citizen', value: `<@${targetUser.id}>`, inline: true },
+          { name: 'Card Serial ID', value: \`\`\${serialId}\`\`, inline: true },
+          { name: 'Citizen', value: \`<@\${targetUser.id}>\`, inline: true },
           {
             name: 'Roblox Identity',
-            value: robloxInfo.userId
-              ? `[@${robloxInfo.username}](https://www.roblox.com/users/${robloxInfo.userId}/profile)`
-              : robloxQuery,
+            value: robloxInfo.userId ? \`[@\${robloxInfo.username}](https://www.roblox.com/users/\${robloxInfo.userId}/profile)\` : robloxQuery,
             inline: true,
           },
-          { name: 'Rank Tier', value: `**${assignedRank}**`, inline: true },
-          { name: 'Issuing Officer', value: `<@${issuingOfficer.discordId}>`, inline: true },
-          { name: 'Server Nickname', value: `\`${serverNickname}\``, inline: true }
+          { name: 'Rank Tier', value: \`**\${assignedRank}**\`, inline: true },
+          { name: 'Issuing Officer', value: \`<@\${issuingOfficer.discordId}>\`, inline: true },
+          { name: 'Server Nickname', value: \`\`\${serverNickname}\`\`, inline: true }
         )
         .setFooter({
           text: usedTemplate
-            ? `Saved in Database • Stamped with ${templateSource}`
-            : '⚠️ Generic template used. Run /card set-template to upload your server\'s official template!',
+            ? \`Saved to Database • Stamped with \${templateSource}\`
+            : '⚠️ Permanent template missing! Type /card set-template to upload it.',
         })
         .setTimestamp();
 
       if (!usedTemplate) {
         embed.addFields({
           name: '⚠️ Template Notice',
-          value: 'This server has not uploaded its official template yet. Run `/card set-template` with your template image attached!',
+          value: 'This server has not uploaded its official template yet. Run \`/card set-template\` with your image attached!',
         });
       }
 
       if (cardBuffer) {
         const attachment = new AttachmentBuilder(cardBuffer, { name: fileName });
         files.push(attachment);
-        embed.setImage(`attachment://${fileName}`);
+        embed.setImage(\`attachment://\${fileName}\`);
       }
 
       return interaction.editReply({ embeds: [embed], files });
     }
 
-    // ==========================================
     // COMMAND: /card verify [serial]
-    // ==========================================
     if (sub === 'verify') {
       const serial = interaction.options.getString('serial').toUpperCase();
       const db = loadDatabase();
@@ -794,51 +737,49 @@ export const cardCommand = {
 
       if (!card) {
         const embed = new EmbedBuilder()
-          .setTitle(`Citizen Card Verification: ${serial}`)
-          .setColor(0xef4444)
-          .setDescription(`❌ **UNVERIFIED OR FRAUDULENT SERIAL ID**\nSerial \`${serial}\` was not found in the official UOI database.`)
+          .setTitle(\`Citizen Card Verification: \${serial}\`)
+          .setColor(0xEF4444)
+          .setDescription(\`❌ **UNVERIFIED OR FRAUDULENT SERIAL ID**\\nSerial \`\${serial}\` was not found in the official UOI database.\`)
           .setTimestamp();
         return interaction.reply({ embeds: [embed] });
       }
 
       const isActive = card.status === 'ACTIVE';
       const embed = new EmbedBuilder()
-        .setTitle(`Citizen Card Verification: ${serial}`)
-        .setColor(isActive ? 0x10b981 : 0xef4444)
+        .setTitle(\`Citizen Card Verification: \${serial}\`)
+        .setColor(isActive ? 0x10B981 : 0xEF4444)
         .setDescription(
           isActive
-            ? `✅ **AUTHENTIC UOI CITIZEN CARD**\nStatus: **ACTIVE & VERIFIED**\nRegistered in Central Registry.`
-            : `🚨 **REVOKED CITIZEN CARD**\nThis credential was revoked and is no longer valid.`
+            ? \`✅ **AUTHENTIC UOI CITIZEN CARD**\\nStatus: **ACTIVE & VERIFIED**\\nRegistered in Central Registry.\`
+            : \`🚨 **REVOKED CITIZEN CARD**\\nThis credential was revoked and is no longer valid.\`
         )
         .addFields(
-          { name: 'Citizen', value: `<@${card.discordId}>`, inline: true },
+          { name: 'Citizen', value: \`<@\${card.discordId}>\`, inline: true },
           { name: 'Full Name', value: card.fullName, inline: true },
-          { name: 'Roblox', value: `@${card.robloxUsername || 'Unlinked'}`, inline: true },
-          { name: 'Rank Tier', value: `**${card.assignedRank}**`, inline: true },
-          { name: 'Issuing Officer', value: `<@${card.issuedBy?.discordId || card.issuedBy}>`, inline: true },
-          { name: 'Issued Date', value: `<t:${Math.floor(new Date(card.issuedAt).getTime() / 1000)}:d>`, inline: true }
+          { name: 'Roblox', value: \`@\${card.robloxUsername || 'Unlinked'}\`, inline: true },
+          { name: 'Rank Tier', value: \`**\${card.assignedRank}**\`, inline: true },
+          { name: 'Issuing Officer', value: \`<@\${card.issuedBy?.discordId || card.issuedBy}>\`, inline: true },
+          { name: 'Issued Date', value: \`<t:\${Math.floor(new Date(card.issuedAt).getTime() / 1000)}:d>\`, inline: true }
         )
         .setTimestamp();
       return interaction.reply({ embeds: [embed] });
     }
 
-    // ==========================================
     // COMMAND: /card inspect @user
-    // ==========================================
     if (sub === 'inspect') {
       const targetUser = interaction.options.getUser('user');
       const db = loadDatabase();
       const card = db.cards[targetUser.id];
 
       const embed = new EmbedBuilder()
-        .setTitle(`Citizen Dossier: ${targetUser.tag}`)
-        .setColor(card?.status === 'ACTIVE' ? 0x6366f1 : 0x64748b)
+        .setTitle(\`Citizen Dossier: \${targetUser.tag}\`)
+        .setColor(card?.status === 'ACTIVE' ? 0x6366F1 : 0x64748B)
         .setThumbnail(targetUser.displayAvatarURL({ dynamic: true }))
         .addFields(
-          { name: 'Discord ID', value: `\`${targetUser.id}\``, inline: true },
+          { name: 'Discord ID', value: \`\`\${targetUser.id}\`\`, inline: true },
           {
             name: 'Citizen Card Status',
-            value: card?.status === 'ACTIVE' ? `🟢 Active (\`${card.serialId}\`)` : card?.status === 'REVOKED' ? '🔴 Revoked' : '⚪ None Registered',
+            value: card?.status === 'ACTIVE' ? \`🟢 Active (\`\${card.serialId}\`)\` : card?.status === 'REVOKED' ? '🔴 Revoked' : '⚪ None Registered',
             inline: true,
           }
         );
@@ -846,9 +787,9 @@ export const cardCommand = {
       if (card) {
         embed.addFields(
           { name: 'Full Name', value: card.fullName, inline: true },
-          { name: 'Roblox Username', value: `@${card.robloxUsername || 'Unlinked'}`, inline: true },
-          { name: 'Rank Tier', value: `**${card.assignedRank}**`, inline: true },
-          { name: 'Issued At', value: `<t:${Math.floor(new Date(card.issuedAt).getTime() / 1000)}:f>`, inline: true }
+          { name: 'Roblox Username', value: \`@\${card.robloxUsername || 'Unlinked'}\`, inline: true },
+          { name: 'Rank Tier', value: \`**\${card.assignedRank}**\`, inline: true },
+          { name: 'Issued At', value: \`<t:\${Math.floor(new Date(card.issuedAt).getTime() / 1000)}:f>\`, inline: true }
         );
       }
 
@@ -856,9 +797,7 @@ export const cardCommand = {
       return interaction.reply({ embeds: [embed] });
     }
 
-    // ==========================================
     // COMMAND: /card promote
-    // ==========================================
     if (sub === 'promote') {
       const targetUser = interaction.options.getUser('citizen');
       const newRank = interaction.options.getString('rank').toUpperCase();
@@ -874,21 +813,19 @@ export const cardCommand = {
 
       const embed = new EmbedBuilder()
         .setTitle('🎖️ Citizen Promotion Granted')
-        .setColor(0x3b82f6)
+        .setColor(0x3B82F6)
         .addFields(
-          { name: 'Citizen', value: `<@${targetUser.id}>`, inline: true },
-          { name: 'Promoted To', value: `**${newRank}**`, inline: true },
-          { name: 'Officer', value: `<@${issuingOfficer.discordId}>`, inline: true },
+          { name: 'Citizen', value: \`<@\${targetUser.id}>\`, inline: true },
+          { name: 'Promoted To', value: \`**\${newRank}**\`, inline: true },
+          { name: 'Officer', value: \`<@\${issuingOfficer.discordId}>\`, inline: true },
           { name: 'Justification', value: reason }
         )
-        .setFooter({ text: card ? 'Database record updated successfully' : 'Notice: No database card on file' })
+        .setFooter({ text: card ? 'Database record updated' : 'Notice: No existing database card' })
         .setTimestamp();
       return interaction.reply({ embeds: [embed] });
     }
 
-    // ==========================================
     // COMMAND: /card revoke
-    // ==========================================
     if (sub === 'revoke') {
       const serial = interaction.options.getString('serial').toUpperCase();
       const reason = interaction.options.getString('reason');
@@ -904,19 +841,63 @@ export const cardCommand = {
 
       const embed = new EmbedBuilder()
         .setTitle('🚨 UOI Citizen ID Card REVOKED')
-        .setColor(0xef4444)
+        .setColor(0xEF4444)
         .setDescription('⚠️ **THIS CITIZEN CARD HAS BEEN REVOKED & BLACKLISTED**')
         .addFields(
-          { name: 'Serial ID', value: `\`${serial}\``, inline: true },
-          { name: 'Revoking Officer', value: `<@${issuingOfficer.discordId}>`, inline: true },
+          { name: 'Serial ID', value: \`\`\${serial}\`\`, inline: true },
+          { name: 'Revoking Officer', value: \`<@\${issuingOfficer.discordId}>\`, inline: true },
           { name: 'Reason', value: reason },
-          { name: 'Re-issuance Status', value: 'Citizen is now cleared to receive a newly authorized card if appropriate.' }
+          { name: 'Re-issuance Status', value: 'Citizen slot has been released for fresh issuance if authorized.' }
         )
         .setFooter({ text: 'Database entry marked as REVOKED' })
         .setTimestamp();
       return interaction.reply({ embeds: [embed] });
     }
   },
-};
 
-export default cardCommand;
+  /**
+   * Autocomplete handler for /card options
+   * Dynamically filters rank choices to ONLY the roles that this particular citizen possesses
+   */
+  async autocomplete(interaction) {
+    const focusedOption = interaction.options.getFocused(true);
+
+    if (focusedOption.name === 'rank') {
+      const targetUserId = interaction.options.get('citizen')?.value;
+      let choices = [];
+
+      if (targetUserId && interaction.guild) {
+        try {
+          const member = await interaction.guild.members.fetch(targetUserId).catch(() => null);
+          if (member && member.roles) {
+            // STRICT REQUIREMENT: Only show the roles that this particular person has in the rank option
+            const memberRoles = member.roles.cache
+              .filter(r => r.id !== interaction.guild.id && !r.managed)
+              .sort((a, b) => b.position - a.position);
+
+            choices = memberRoles.map(r => ({
+              name: r.name,
+              value: r.name.toUpperCase(),
+            }));
+          }
+        } catch (err) {
+          console.warn('[UOI Bot] Failed to fetch citizen roles for autocomplete:', err.message);
+        }
+      }
+
+      if (choices.length === 0) {
+        if (!targetUserId) {
+          choices = [{ name: '⚠️ Select the citizen option first to view their roles', value: 'COMMUNITY MEMBER' }];
+        } else {
+          choices = [{ name: 'COMMUNITY MEMBER (Default)', value: 'COMMUNITY MEMBER' }];
+        }
+      }
+
+      const filtered = choices
+        .filter(choice => choice.name.toLowerCase().includes(focusedOption.value.toLowerCase()))
+        .slice(0, 25);
+
+      await interaction.respond(filtered);
+    }
+  }
+};`;

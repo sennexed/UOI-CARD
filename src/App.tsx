@@ -322,36 +322,28 @@ export default function App() {
                 />
               </div>
 
-              {/* Field 4: User Selected Gender */}
+              {/* Field 4: User Selected Gender (Restricted to Male, Female, or Other) */}
               <div className="flex flex-col gap-1.5">
                 <label className="text-xs font-medium text-slate-300 flex items-center justify-between">
-                  <span>4. Selected Gender String</span>
-                  <span className="text-[10px] text-slate-500 font-mono">Upper Cased</span>
+                  <span>4. Selected Gender</span>
+                  <span className="text-[10px] text-amber-400/90 font-mono">Strict Choices: Male / Female / Other</span>
                 </label>
                 <div className="grid grid-cols-3 gap-2">
-                  {['Male', 'Female', 'Not Specified'].map((g) => (
+                  {['Male', 'Female', 'Other'].map((g) => (
                     <button
                       key={g}
                       type="button"
                       onClick={() => setInput({ ...input, gender: g })}
-                      className={`px-2 py-1.5 rounded text-xs font-medium border transition-colors cursor-pointer ${
+                      className={`px-3 py-2 rounded-lg text-xs font-semibold border transition-all cursor-pointer text-center ${
                         input.gender.toLowerCase() === g.toLowerCase()
-                          ? 'bg-amber-500/20 border-amber-500 text-amber-300'
-                          : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700'
+                          ? 'bg-amber-500/20 border-amber-500 text-amber-300 shadow-sm'
+                          : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700 hover:text-slate-200'
                       }`}
                     >
                       {g}
                     </button>
                   ))}
                 </div>
-                <input
-                  id="input-gender"
-                  type="text"
-                  value={input.gender}
-                  onChange={(e) => setInput({ ...input, gender: e.target.value })}
-                  placeholder="Custom gender string..."
-                  className="w-full bg-slate-950 border border-slate-700/80 rounded-lg px-3 py-1.5 text-xs text-slate-100 font-mono focus:outline-none focus:border-amber-500 mt-1"
-                />
               </div>
 
               {/* Field 5: Discord Server Role IDs Array */}

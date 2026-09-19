@@ -1,16 +1,47 @@
 import express from 'express';
 import path from 'path';
+import fs from 'fs';
 import { createServer as createViteServer } from 'vite';
 
 async function startServer() {
   const app = express();
   const PORT = 3000;
 
-  app.use(express.json());
+  app.use(express.json({ limit: '50mb' }));
 
   // API: Health check
   app.get('/api/health', (req, res) => {
     res.json({ status: 'ok', time: new Date().toISOString() });
+  });
+
+  // API: Get current permanent template
+  app.get('/api/template', (req, res) => {
+    for (const f of ['template.png', 'template.jpg', 'public/template.png', 'public/template.jpg']) {
+      if (fs.existsSync(f)) {
+        return res.sendFile(path.resolve(f));
+      }
+    }
+    return res.status(404).json({ error: 'No permanent template found on server' });
+  });
+
+  // API: Save uploaded template to server as template.png
+  app.post('/api/template', (req, res) => {
+    try {
+      const { dataUrl } = req.body;
+      if (!dataUrl || !dataUrl.includes('base64,')) {
+        return res.status(400).json({ error: 'Invalid dataUrl payload' });
+      }
+      const base64Data = dataUrl.split('base64,')[1];
+      const buffer = Buffer.from(base64Data, 'base64');
+      fs.writeFileSync('template.png', buffer);
+      try {
+        if (!fs.existsSync('public')) fs.mkdirSync('public');
+        fs.writeFileSync('public/template.png', buffer);
+      } catch (_) {}
+      return res.json({ success: true, message: 'Template saved as template.png successfully' });
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
   });
 
   // Helper to fetch binary image and convert to base64 data URL
@@ -182,6 +213,7 @@ async function startServer() {
       robloxUserId: string;
       fullName: string;
       assignedRank: string;
+      gender?: string;
     };
     issuedBy: {
       discordId: string;
@@ -302,7 +334,7 @@ async function startServer() {
     res.json({ total: list.length, cards: list });
   });
 
-  // POST /api/card/issue - Command 1: /card generate
+  // POST /api/card/issue - Command 1: /card generate (1 card per person enforcement)
   app.post('/api/card/issue', (req, res) => {
     const { serialId, issuedTo, issuedBy } = req.body;
     if (!serialId || !issuedTo || !issuedTo.fullName || !issuedTo.assignedRank) {
@@ -321,7 +353,24 @@ async function startServer() {
       robloxUserId: issuedTo.robloxUserId || '',
       fullName: issuedTo.fullName,
       assignedRank: issuedTo.assignedRank,
+      gender: issuedTo.gender || 'Not Specified',
     };
+
+    // STRICT 1 CARD PER PERSON CHECK:
+    const existingActiveCard = Array.from(cardVault.values()).find(
+      (c) =>
+        c.status === 'ACTIVE' &&
+        ((targetUser.discordId !== '000000000000000000' && c.issuedTo.discordId === targetUser.discordId) ||
+          (targetUser.robloxUserId && c.issuedTo.robloxUserId === targetUser.robloxUserId) ||
+          (targetUser.robloxUsername && c.issuedTo.robloxUsername.toLowerCase() === targetUser.robloxUsername.toLowerCase()))
+    );
+
+    if (existingActiveCard) {
+      return res.status(409).json({
+        error: `Citizen ${targetUser.fullName} already has an active card (${existingActiveCard.serialId}). Policy allows only 1 card per person. Use /card show to view it.`,
+        card: existingActiveCard,
+      });
+    }
 
     const serverNickname = `${targetUser.fullName} [${serialId}]`;
 
@@ -344,6 +393,33 @@ async function startServer() {
 
     cardVault.set(serialId, record);
     return res.status(201).json({ success: true, card: record });
+  });
+
+  // GET /api/card/show/:target - Command: /card show [user]
+  app.get('/api/card/show/:target', (req, res) => {
+    const query = req.params.target?.trim().toLowerCase();
+    if (!query) {
+      return res.status(400).json({ error: 'Target query is required' });
+    }
+
+    const found = Array.from(cardVault.values()).find((c) => {
+      return (
+        c.issuedTo.discordId.toLowerCase() === query ||
+        c.issuedTo.discordTag.toLowerCase() === query ||
+        c.issuedTo.robloxUsername.toLowerCase() === query ||
+        c.issuedTo.robloxUserId === query ||
+        c.serialId.toLowerCase() === query
+      );
+    });
+
+    if (!found || found.status === 'REVOKED') {
+      return res.status(404).json({
+        found: false,
+        message: `No active UOI Citizen ID Card found in the database for '${req.params.target}'.`,
+      });
+    }
+
+    return res.json({ found: true, card: found });
   });
 
   // GET /api/card/verify/:serialId - Command 2: /card verify [serial_id]

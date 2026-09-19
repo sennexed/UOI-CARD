@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import JSZip from 'jszip';
 import {
   ProcessedCardData,
@@ -6,6 +6,8 @@ import {
   CardRecord,
   CardAuditActor,
 } from '../types';
+import { getStoredImage } from '../utils/imageStore';
+import { discordJsCode } from '../data/discordBotCode';
 import {
   Terminal,
   ShieldCheck,
@@ -31,6 +33,8 @@ import {
   ChevronUp,
   GitBranch,
   Github,
+  Eye,
+  IdCard,
 } from 'lucide-react';
 
 interface DiscordBotCommandHubProps {
@@ -42,7 +46,7 @@ export function DiscordBotCommandHub({
   currentCardData,
   currentSerialId,
 }: DiscordBotCommandHubProps) {
-  const [activeTab, setActiveTab] = useState<'generate' | 'verify' | 'inspect' | 'manage' | 'code'>('generate');
+  const [activeTab, setActiveTab] = useState<'generate' | 'show' | 'verify' | 'inspect' | 'manage' | 'code'>('generate');
 
   // Command Executor Simulation (interaction.user)
   const [executor, setExecutor] = useState<CardAuditActor>({
@@ -55,6 +59,49 @@ export function DiscordBotCommandHub({
   const [targetDiscordTag, setTargetDiscordTag] = useState<string>(
     `${currentCardData.robloxUsername || 'citizen'}#0001`
   );
+
+  // Form inputs for /card generate restricted options
+  const [selectedGenerateGender, setSelectedGenerateGender] = useState<'Male' | 'Female' | 'Other'>('Male');
+  const [selectedGenerateRank, setSelectedGenerateRank] = useState<string>(
+    currentCardData.assignedRank || 'COMMUNITY MEMBER'
+  );
+
+  // Compute roles this citizen actually possesses in this server
+  const citizenRoles = useMemo(() => {
+    const matched = ROLE_HIERARCHY.filter((r) => currentCardData.roleIds?.includes(r.id));
+    if (matched.length > 0) return matched;
+    return [{ id: 'default', name: currentCardData.assignedRank || 'COMMUNITY MEMBER', title: 'Community Member' }];
+  }, [currentCardData.roleIds, currentCardData.assignedRank]);
+
+  useEffect(() => {
+    if (currentCardData.gender) {
+      const g = currentCardData.gender.toUpperCase();
+      if (g.includes('FEMALE') || g === 'F') setSelectedGenerateGender('Female');
+      else if (g.includes('MALE') || g === 'M') setSelectedGenerateGender('Male');
+      else setSelectedGenerateGender('Other');
+    }
+  }, [currentCardData.gender]);
+
+  useEffect(() => {
+    if (currentCardData.assignedRank) {
+      setSelectedGenerateRank(currentCardData.assignedRank);
+    }
+  }, [currentCardData.assignedRank]);
+
+  // /card show state
+  const [showTargetInput, setShowTargetInput] = useState<string>('883322114455667788');
+  const [showResult, setShowResult] = useState<{
+    found?: boolean;
+    card?: CardRecord;
+    message?: string;
+  } | null>(null);
+  const [showingCard, setShowingCard] = useState<boolean>(false);
+
+  // 1 card per person warning state
+  const [duplicateWarning, setDuplicateWarning] = useState<{
+    message: string;
+    existingCard?: CardRecord;
+  } | null>(null);
 
   // Vault cards list
   const [vaultCards, setVaultCards] = useState<CardRecord[]>([]);
@@ -121,8 +168,9 @@ export function DiscordBotCommandHub({
     }
   }, [currentCardData.robloxUsername]);
 
-  // Command 1: /card generate
+  // Command 1: /card generate (1 card per person check)
   const handleIssueCard = async () => {
+    setDuplicateWarning(null);
     try {
       const resp = await fetch('/api/card/issue', {
         method: 'POST',
@@ -135,19 +183,52 @@ export function DiscordBotCommandHub({
             robloxUsername: currentCardData.robloxUsername,
             robloxUserId: currentCardData.robloxUserId,
             fullName: currentCardData.fullName,
-            assignedRank: currentCardData.assignedRank,
+            assignedRank: selectedGenerateRank || currentCardData.assignedRank,
+            gender: selectedGenerateGender,
           },
           issuedBy: executor,
         }),
       });
 
+      const json = await resp.json();
+
+      if (resp.status === 409) {
+        setDuplicateWarning({
+          message: json.error || 'Citizen already has an active card registered.',
+          existingCard: json.card,
+        });
+        return;
+      }
+
       if (resp.ok) {
         setIssueSuccess(true);
+        setDuplicateWarning(null);
         fetchVault();
         setTimeout(() => setIssueSuccess(false), 4000);
       }
     } catch (err) {
       console.error('Failed to issue card:', err);
+    }
+  };
+
+  // Command 2: /card show [user]
+  const handleExecuteShow = async (targetToLookup?: string) => {
+    const query = (targetToLookup || showTargetInput).trim();
+    if (!query) return;
+    setShowingCard(true);
+    setShowResult(null);
+
+    try {
+      const resp = await fetch(`/api/card/show/${encodeURIComponent(query)}`);
+      const json = await resp.json();
+      setShowResult(json);
+    } catch (err: any) {
+      setShowResult({
+        found: false,
+        message: 'Error querying card database: ' + err.message,
+      });
+    } finally {
+      setShowingCard(false);
     }
   };
 
@@ -248,482 +329,9 @@ export function DiscordBotCommandHub({
 
   const calculatedServerNickname = `${currentCardData.fullName} [${currentSerialId}]`;
 
-  const discordJsCode = `// ==========================================
-// UNION OF INDIANS (UOI) DISCORD.JS COMMAND HANDLERS
-// WITH AUTOMATIC HIGH-RESOLUTION CARD IMAGE GENERATION
-// ==========================================
+// Using modular imported discordJsCode with 1 template per server & 1 card per person
 
-const { SlashCommandBuilder, EmbedBuilder, AttachmentBuilder } = require('discord.js');
-const { createCanvas, loadImage } = require('@napi-rs/canvas');
-const fs = require('fs');
-
-// 1. Fetch Roblox user details & 720x720 avatar thumbnail
-async function fetchRobloxUserData(query) {
-  try {
-    let userId = null;
-    let username = null;
-    let displayName = null;
-
-    if (/^\\d+$/.test(query.trim())) {
-      userId = parseInt(query.trim(), 10);
-      try {
-        const uResp = await fetch(\`https://users.roblox.com/v1/users/\${userId}\`);
-        if (uResp.ok) {
-          const uJson = await uResp.json();
-          username = uJson.name;
-          displayName = uJson.displayName;
-        }
-      } catch (_) {}
-    } else {
-      const cleanName = query.trim().replace(/^@/, '');
-      const searchResp = await fetch('https://users.roblox.com/v1/usernames/users', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ usernames: [cleanName], excludeBannedUsers: false }),
-      });
-      if (searchResp.ok) {
-        const sJson = await searchResp.json();
-        const match = sJson.data?.[0];
-        if (match) {
-          userId = match.id;
-          username = match.name;
-          displayName = match.displayName;
-        }
-      }
-    }
-
-    if (!userId) {
-      return { userId: null, username: query, avatarUrl: null };
-    }
-
-    const thumbResp = await fetch(
-      \`https://thumbnails.roblox.com/v1/users/avatar?userIds=\${userId}&size=720x720&format=Png&isCircular=false\`
-    );
-    let avatarUrl = null;
-    if (thumbResp.ok) {
-      const tJson = await thumbResp.json();
-      avatarUrl = tJson.data?.[0]?.imageUrl || null;
-    }
-
-    return {
-      userId: String(userId),
-      username: username || query,
-      displayName: displayName || username || query,
-      avatarUrl,
-    };
-  } catch (err) {
-    console.warn('[UOI Bot] Roblox user fetch warning:', err.message);
-    return { userId: null, username: query, avatarUrl: null };
-  }
-}
-
-// 2. Render 1200x900 High-Resolution Citizen ID Card
-async function renderCardImage({
-  fullName,
-  robloxUsername,
-  robloxUserId,
-  gender,
-  assignedRank,
-  serialId,
-  avatarUrl,
-}) {
-  const canvas = createCanvas(1200, 900);
-  const ctx = canvas.getContext('2d');
-
-  let templateLoaded = false;
-  for (const filename of ['template.png', 'template.jpg', './template.png', './template.jpg']) {
-    try {
-      if (fs.existsSync(filename)) {
-        const bgImg = await loadImage(filename);
-        ctx.drawImage(bgImg, 0, 0, 1200, 900);
-        templateLoaded = true;
-        break;
-      }
-    } catch (_) {}
-  }
-
-  if (!templateLoaded) {
-    const bgGrad = ctx.createLinearGradient(0, 0, 1200, 900);
-    bgGrad.addColorStop(0, '#0a0f1d');
-    bgGrad.addColorStop(0.5, '#070b16');
-    bgGrad.addColorStop(1, '#04070e');
-    ctx.fillStyle = bgGrad;
-    ctx.fillRect(0, 0, 1200, 900);
-
-    ctx.strokeStyle = '#1e293b33';
-    ctx.lineWidth = 1;
-    for (let x = 0; x < 1200; x += 40) {
-      ctx.beginPath();
-      ctx.moveTo(x, 0);
-      ctx.lineTo(x, 900);
-      ctx.stroke();
-    }
-    for (let y = 0; y < 900; y += 40) {
-      ctx.beginPath();
-      ctx.moveTo(0, y);
-      ctx.lineTo(1200, y);
-      ctx.stroke();
-    }
-
-    ctx.strokeStyle = '#f59e0b';
-    ctx.lineWidth = 4;
-    ctx.strokeRect(18, 18, 1164, 864);
-
-    ctx.strokeStyle = '#334155';
-    ctx.lineWidth = 1.5;
-    ctx.strokeRect(26, 26, 1148, 848);
-
-    const headerGrad = ctx.createLinearGradient(0, 26, 0, 210);
-    headerGrad.addColorStop(0, '#0f172a');
-    headerGrad.addColorStop(1, '#070b14');
-    ctx.fillStyle = headerGrad;
-    ctx.fillRect(26, 26, 1148, 184);
-
-    ctx.fillStyle = '#FF9933';
-    ctx.fillRect(26, 206, 1148, 4);
-    ctx.fillStyle = '#FFFFFF';
-    ctx.fillRect(26, 210, 1148, 3);
-    ctx.fillStyle = '#138808';
-    ctx.fillRect(26, 213, 1148, 4);
-
-    ctx.save();
-    ctx.translate(90, 115);
-    ctx.strokeStyle = '#f59e0b';
-    ctx.lineWidth = 3;
-    ctx.beginPath();
-    ctx.arc(0, 0, 48, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.arc(0, 0, 18, 0, Math.PI * 2);
-    ctx.stroke();
-    for (let i = 0; i < 24; i++) {
-      const angle = (i * Math.PI) / 12;
-      ctx.beginPath();
-      ctx.moveTo(Math.cos(angle) * 18, Math.sin(angle) * 18);
-      ctx.lineTo(Math.cos(angle) * 48, Math.sin(angle) * 48);
-      ctx.stroke();
-    }
-    ctx.restore();
-
-    ctx.fillStyle = '#f59e0b';
-    ctx.font = 'bold 36px sans-serif';
-    ctx.fillText('UNION OF INDIANS', 160, 95);
-
-    ctx.fillStyle = '#94a3b8';
-    ctx.font = 'bold 16px sans-serif';
-    ctx.fillText('OFFICIAL CITIZEN IDENTIFICATION CARD', 162, 130);
-
-    ctx.fillStyle = '#cbd5e1';
-    ctx.font = '13px monospace';
-    ctx.fillText('GOVERNMENT OF UOI • CENTRAL CITIZEN REGISTRY RECORD', 162, 160);
-
-    ctx.fillStyle = '#0b1324';
-    ctx.strokeStyle = '#38bdf8';
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    ctx.roundRect(880, 50, 270, 50, 6);
-    ctx.fill();
-    ctx.stroke();
-
-    ctx.fillStyle = '#94a3b8';
-    ctx.font = 'bold 11px sans-serif';
-    ctx.fillText('CARD SERIAL ID', 895, 70);
-
-    ctx.fillStyle = '#38bdf8';
-    ctx.font = 'bold 16px monospace';
-    ctx.fillText(serialId, 895, 91);
-
-    ctx.fillStyle = '#0b1120';
-    ctx.fillRect(56, 260, 345, 380);
-    ctx.strokeStyle = '#f59e0b';
-    ctx.lineWidth = 2.5;
-    ctx.strokeRect(56, 260, 345, 380);
-
-    ctx.fillStyle = '#64748b';
-    ctx.font = 'bold 11px sans-serif';
-    ctx.fillText('OFFICIAL CITIZEN PORTRAIT', 65, 250);
-
-    const fields = [
-      { label: 'FULL CITIZEN NAME', value: fullName },
-      { label: 'ROBLOX USERNAME', value: robloxUsername ? \`@\${robloxUsername}\` : 'UNLINKED' },
-      { label: 'ROBLOX USER ID', value: robloxUserId || 'N/A' },
-      { label: 'GENDER', value: gender || 'N/A' },
-      { label: 'RANK / ROLE', value: assignedRank || 'COMMUNITY MEMBER' },
-    ];
-
-    fields.forEach((f, idx) => {
-      const boxY = 260 + idx * 78;
-      ctx.fillStyle = '#f59e0b';
-      ctx.font = 'bold 13px sans-serif';
-      ctx.fillText(f.label, 470, boxY + 20);
-
-      ctx.fillStyle = '#0b1324';
-      ctx.strokeStyle = '#1e293b';
-      ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      ctx.roundRect(470, boxY + 30, 680, 42, 6);
-      ctx.fill();
-      ctx.stroke();
-
-      ctx.fillStyle = '#ffffff';
-      ctx.font = 'bold 19px sans-serif';
-      ctx.fillText(f.value, 485, boxY + 58);
-    });
-
-    ctx.fillStyle = '#0b1324';
-    ctx.strokeStyle = '#f59e0b';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.roundRect(56, 655, 345, 50, 6);
-    ctx.fill();
-    ctx.stroke();
-
-    ctx.fillStyle = '#f59e0b';
-    ctx.font = '900 20px sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText(assignedRank.toUpperCase(), 56 + 345 / 2, 687);
-    ctx.textAlign = 'left';
-
-    ctx.strokeStyle = '#334155';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(56, 740);
-    ctx.lineTo(1150, 740);
-    ctx.stroke();
-
-    let barX = 56;
-    ctx.fillStyle = '#cbd5e1';
-    for (let b = 0; b < 55; b++) {
-      const w = (b % 3 === 0) ? 4 : (b % 2 === 0) ? 2 : 1;
-      ctx.fillRect(barX, 760, w, 65);
-      barX += w + ((b % 5 === 0) ? 6 : 3);
-    }
-
-    ctx.fillStyle = '#64748b';
-    ctx.font = '12px monospace';
-    ctx.fillText(serialId, 56, 845);
-
-    ctx.fillStyle = '#10b981';
-    ctx.font = 'bold 13px sans-serif';
-    ctx.fillText('STATUS: ACTIVE & VERIFIED', 470, 775);
-
-    ctx.fillStyle = '#94a3b8';
-    ctx.font = '12px sans-serif';
-    ctx.fillText('Authorized by Union of Indians Security Command • Tampering is prohibited.', 470, 800);
-  } else {
-    ctx.save();
-    ctx.fillStyle = '#38BDF8';
-    ctx.font = 'bold 14px "Courier New", Courier, monospace';
-    ctx.fillText(serialId, 1010, 36);
-    ctx.restore();
-
-    ctx.save();
-    ctx.fillStyle = '#080d19';
-    ctx.beginPath();
-    ctx.roundRect(54, 687, 348, 46, 4);
-    ctx.fill();
-    ctx.strokeStyle = '#F59E0B';
-    ctx.lineWidth = 2;
-    ctx.stroke();
-
-    ctx.fillStyle = '#FFFFFF';
-    ctx.font = '900 20px sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText(assignedRank.toUpperCase(), 54 + 174, 718);
-    ctx.textAlign = 'left';
-    ctx.restore();
-
-    const fieldValues = [
-      { val: fullName, textY: 358 },
-      { val: robloxUsername ? \`@\${robloxUsername}\` : '', textY: 446 },
-      { val: robloxUserId || '', textY: 534 },
-      { val: gender || '', textY: 622 },
-      { val: assignedRank || '', textY: 710 },
-    ];
-
-    ctx.save();
-    ctx.fillStyle = '#FFFFFF';
-    ctx.font = 'bold 22px sans-serif';
-    fieldValues.forEach((f) => {
-      if (f.val) ctx.fillText(f.val, 472 + 18, f.textY);
-    });
-    ctx.restore();
-  }
-
-  const photoX = templateLoaded ? 60 : 60;
-  const photoY = templateLoaded ? 324 : 264;
-  const photoW = 337;
-  const photoH = templateLoaded ? 344 : 372;
-
-  if (avatarUrl) {
-    try {
-      const avatarImg = await loadImage(avatarUrl);
-      ctx.save();
-      ctx.beginPath();
-      ctx.rect(photoX, photoY, photoW, photoH);
-      ctx.clip();
-      ctx.drawImage(avatarImg, photoX, photoY, photoW, photoH);
-      ctx.restore();
-    } catch (err) {
-      console.warn('[UOI Bot] Avatar drawing warning:', err.message);
-    }
-  }
-
-  return canvas.toBuffer('image/png');
-}
-
-module.exports = {
-  data: new SlashCommandBuilder()
-    .setName('card')
-    .setDescription('Official UOI Identification System')
-    // 1. /card generate
-    .addSubcommand(sub =>
-      sub.setName('generate')
-        .setDescription('Issue an official UOI identification card with image')
-        .addUserOption(opt => opt.setName('citizen').setDescription('Discord member to receive the card').setRequired(true))
-        .addStringOption(opt => opt.setName('roblox').setDescription('Roblox Username or numerical ID').setRequired(true))
-        .addStringOption(opt => opt.setName('fullname').setDescription('Full Citizen Name').setRequired(true))
-        .addStringOption(opt => opt.setName('gender').setDescription('Gender').setRequired(true))
-        .addStringOption(opt => opt.setName('rank').setDescription('Rank / Role tier (e.g. PRESIDENT, COMMUNITY MEMBER)'))
-    )
-    // 2. /card verify [serial_id]
-    .addSubcommand(sub =>
-      sub.setName('verify')
-        .setDescription('Verify the authenticity of an issued UOI card serial ID')
-        .addStringOption(opt => opt.setName('serial').setDescription('e.g. UOI-2026-839201').setRequired(true))
-    )
-    // 3. /card inspect @user
-    .addSubcommand(sub =>
-      sub.setName('inspect')
-        .setDescription('Inspect citizen dossier, card status, and rank history')
-        .addUserOption(opt => opt.setName('user').setDescription('Target Discord user').setRequired(true))
-    )
-    // 4. /card promote
-    .addSubcommand(sub =>
-      sub.setName('promote')
-        .setDescription('Promote a citizen to a new rank tier (Officer Only)')
-        .addUserOption(opt => opt.setName('citizen').setDescription('Target member').setRequired(true))
-        .addStringOption(opt => opt.setName('rank').setDescription('Target rank tier').setRequired(true))
-        .addStringOption(opt => opt.setName('reason').setDescription('Promotion justification'))
-    )
-    // 5. /card revoke
-    .addSubcommand(sub =>
-      sub.setName('revoke')
-        .setDescription('Revoke a citizen ID card (Security Command Only)')
-        .addStringOption(opt => opt.setName('serial').setDescription('Serial ID to revoke').setRequired(true))
-        .addStringOption(opt => opt.setName('reason').setDescription('Reason for revocation').setRequired(true))
-    ),
-
-  async execute(interaction) {
-    const sub = interaction.options.getSubcommand();
-
-    const issuingOfficer = {
-      discordId: interaction.user.id,
-      discordTag: interaction.user.tag,
-    };
-
-    // COMMAND 1: /card generate
-    if (sub === 'generate') {
-      await interaction.deferReply();
-      const targetMember = interaction.options.getMember('citizen');
-      const targetUser = interaction.options.getUser('citizen');
-      const robloxQuery = interaction.options.getString('roblox');
-      const fullName = interaction.options.getString('fullname');
-      const gender = interaction.options.getString('gender');
-      const assignedRank = (interaction.options.getString('rank') || 'COMMUNITY MEMBER').toUpperCase();
-
-      const serialId = \`UOI-\${new Date().getFullYear()}-\${Math.floor(100000 + Math.random() * 900000)}\`;
-      const serverNickname = \`\${fullName} [\${serialId}]\`;
-
-      const robloxInfo = await fetchRobloxUserData(robloxQuery);
-
-      try {
-        if (targetMember && targetMember.manageable) {
-          await targetMember.setNickname(serverNickname);
-        }
-      } catch (err) {
-        console.warn('[UOI Bot] Could not update nickname due to role hierarchy limits');
-      }
-
-      let cardBuffer;
-      try {
-        cardBuffer = await renderCardImage({
-          fullName,
-          robloxUsername: robloxInfo.username,
-          robloxUserId: robloxInfo.userId,
-          gender,
-          assignedRank,
-          serialId,
-          avatarUrl: robloxInfo.avatarUrl,
-        });
-      } catch (err) {
-        console.error('[UOI Bot] Failed to generate card image:', err);
-      }
-
-      const fileName = \`\${serialId}.png\`;
-      const files = [];
-
-      const embed = new EmbedBuilder()
-        .setTitle('🛡️ UOI Citizen ID Card Issued')
-        .setColor(0xF59E0B)
-        .setDescription(\`Official identity credential issued to <@\${targetUser.id}>\`)
-        .addFields(
-          { name: 'Card Serial ID', value: \`\`\${serialId}\`\`, inline: true },
-          { name: 'Citizen', value: \`<@\${targetUser.id}>\`, inline: true },
-          {
-            name: 'Roblox Identity',
-            value: robloxInfo.userId ? \`[@\${robloxInfo.username}](https://www.roblox.com/users/\${robloxInfo.userId}/profile)\` : robloxQuery,
-            inline: true,
-          },
-          { name: 'Rank Tier', value: \`**\${assignedRank}**\`, inline: true },
-          { name: 'Issuing Officer', value: \`<@\${issuingOfficer.discordId}>\`, inline: true },
-          { name: 'Server Nickname', value: \`\`\${serverNickname}\`\`, inline: true }
-        )
-        .setFooter({ text: 'Union of Indians Registry • Official Citizen Credential' })
-        .setTimestamp();
-
-      if (cardBuffer) {
-        const attachment = new AttachmentBuilder(cardBuffer, { name: fileName });
-        files.push(attachment);
-        embed.setImage(\`attachment://\${fileName}\`);
-      }
-
-      return interaction.editReply({ embeds: [embed], files });
-    }
-
-    // COMMAND 2: /card verify [serial]
-    if (sub === 'verify') {
-      const serial = interaction.options.getString('serial').toUpperCase();
-      const embed = new EmbedBuilder()
-        .setTitle(\`Citizen Card Verification: \${serial}\`)
-        .setColor(0x10B981)
-        .setDescription(\`✅ **AUTHENTIC UOI CITIZEN CARD**\\nStatus: **ACTIVE**\\nVerified by Registry Dispatch.\`)
-        .addFields(
-          { name: 'Serial ID', value: \`\`\${serial}\`\`, inline: true },
-          { name: 'Security Clearance', value: 'Level 1 Citizen', inline: true }
-        )
-        .setTimestamp();
-      return interaction.reply({ embeds: [embed] });
-    }
-
-    // COMMAND 3: /card inspect @user
-    if (sub === 'inspect') {
-      const targetUser = interaction.options.getUser('user');
-      const embed = new EmbedBuilder()
-        .setTitle(\`Citizen Dossier: \${targetUser.tag}\`)
-        .setColor(0x6366F1)
-        .setThumbnail(targetUser.displayAvatarURL({ dynamic: true }))
-        .addFields(
-          { name: 'Discord ID', value: \`\`\${targetUser.id}\`\`, inline: true },
-          { name: 'Citizen Status', value: '🟢 Active Citizen', inline: true }
-        )
-        .setTimestamp();
-      return interaction.reply({ embeds: [embed] });
-    }
-  }
-};`;
-
-  const handleDownloadBotZip = async () => {
+    const handleDownloadBotZip = async () => {
     setZippingBot(true);
     setBotZipDownloaded(false);
     try {
@@ -798,6 +406,18 @@ client.once('ready', async () => {
 });
 
 client.on('interactionCreate', async (interaction) => {
+  // Autocomplete interaction: dynamically filters ranks to only roles this citizen has
+  if (interaction.isAutocomplete()) {
+    if (interaction.commandName === 'card' && cardCommand.autocomplete) {
+      try {
+        await cardCommand.autocomplete(interaction);
+      } catch (err) {
+        console.error('Autocomplete interaction error:', err);
+      }
+    }
+    return;
+  }
+
   if (!interaction.isChatInputCommand()) return;
   if (interaction.commandName === 'card') {
     try {
@@ -821,27 +441,65 @@ client.login(token).catch((err) => {
       zip.file('index.js', indexJsContent);
 
       // 4. .env.example
-      zip.file('.env.example', 'DISCORD_TOKEN=your_bot_token_here\n');
+      zip.file(
+        '.env.example',
+        '# Discord Bot Token from Discord Developer Portal\nDISCORD_TOKEN=your_bot_token_here\n\n# Optional: Direct URL to official permanent template image (if not uploading template.png directly)\nTEMPLATE_URL=\n'
+      );
 
       // 5. .gitignore for GitHub repository
       zip.file('.gitignore', 'node_modules/\n.env\n.DS_Store\n*.log\npackage-lock.json\n');
 
-      // 6. README.md
+      // 6. Database folder and template storage
+      zip.file('data/cards.json', JSON.stringify({ cards: {}, serToUser: {} }, null, 2));
+
+      // 7. Automatically include official template.png if saved in browser or server
+      const savedTemplate = await getStoredImage('card_template');
+      if (savedTemplate && savedTemplate.includes('base64,')) {
+        const b64 = savedTemplate.split('base64,')[1];
+        zip.file('template.png', b64, { base64: true });
+        zip.file('templates/default.png', b64, { base64: true });
+      } else {
+        try {
+          const resp = await fetch('/api/template');
+          if (resp.ok) {
+            const arr = await resp.arrayBuffer();
+            zip.file('template.png', arr);
+            zip.file('templates/default.png', arr);
+          }
+        } catch (_) {}
+      }
+
+      // 8. README.md
       const readmeBot = `# Union of Indians (UOI) Discord Bot
 
-## Setup Instructions
+## Quick Setup
 1. Run \`npm install\`
-2. Copy \`.env.example\` to \`.env\` and put your bot token:
-   \`DISCORD_TOKEN=your_token\`
-3. Ensure the bot has \`Manage Nicknames\` permission and its role is higher than members.
+2. Create a \`.env\` file:
+   \`\`\`env
+   DISCORD_TOKEN=your_discord_bot_token
+   # Optional: Direct link to template image if not using local template.png
+   # TEMPLATE_URL=https://...
+   \`\`\`
+3. **Template Setup (CRITICAL - 1 Template Per Server)**:
+   - **In Discord**: Type \`/card set-template\` in your server and attach your official template image.
+     The bot will permanently store it as \`templates/{server_id}.png\` strictly for your server!
+   - Alternatively, \`template.png\` in the bot's root folder acts as the global fallback.
 4. Run \`node index.js\`
 
-## Slash Commands Included:
-- \`/card generate\`: Issues new citizen card, sets server nickname to "Full Name [Serial]".
-- \`/card verify serial_id\`: Verifies citizen status, rank tier, and authenticity.
-- \`/card inspect @user\`: Dossier investigation & audit log.
-- \`/card promote\`: Upgrades citizen rank tier.
-- \`/card revoke\`: Revokes fraudulent/banned credentials.
+## Core Rules & Features:
+- **1 Card Per Person**: The bot prevents duplicate cards. If a user already has an active card, \`/card generate\` alerts the officer with their existing serial and directs them to \`/card show\`.
+- **1 Template Per Server**: Each Discord server can configure its own official template slot using \`/card set-template\`.
+- **Persistent Database**: Cards are safely stored in \`data/cards.json\`.
+
+## Slash Commands:
+- \`/card generate\`: Issues citizen card with Roblox avatar and official server template (Strictly 1 card per person).
+- \`/card show [citizen]\`: Pulls the citizen's card from the database and renders the card image on demand.
+- \`/card set-template\`: Upload or change the server's official template image (1 template per server).
+- \`/card view-template\`: View the currently active template image for this server.
+- \`/card verify [serial]\`: Verifies authenticity and active status of an issued card in the database.
+- \`/card inspect @user\`: Citizen dossier and card status.
+- \`/card promote\`: Upgrades rank tier in the database.
+- \`/card revoke\`: Revokes and blacklists credentials in the database, releasing the slot for reissuing.
 `;
       zip.file('README.md', readmeBot);
 
@@ -894,6 +552,14 @@ client.login(token).catch((err) => {
             }`}
           >
             /card generate
+          </button>
+          <button
+            onClick={() => setActiveTab('show')}
+            className={`px-2.5 py-1 rounded transition-colors font-medium cursor-pointer ${
+              activeTab === 'show' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            /card show
           </button>
           <button
             onClick={() => setActiveTab('verify')}
@@ -1001,9 +667,46 @@ client.login(token).catch((err) => {
                   />
                 </div>
               </div>
-              <div className="text-[11px] text-slate-400 flex items-center justify-between pt-1">
-                <span>Card Serial: <strong className="text-sky-400 font-mono">{currentSerialId}</strong></span>
-                <span>Assigned Rank: <strong className="text-amber-400">{currentCardData.assignedRank}</strong></span>
+
+              {/* Slash Command Options: Constrained Gender & Citizen-Only Ranks */}
+              <div className="grid grid-cols-2 gap-2 text-xs pt-1 border-t border-slate-800/80">
+                <div>
+                  <label className="text-[11px] text-slate-400 flex items-center justify-between">
+                    <span>Gender Option:</span>
+                    <span className="text-[9px] text-amber-400 font-mono">3 Choices</span>
+                  </label>
+                  <select
+                    value={selectedGenerateGender}
+                    onChange={(e) => setSelectedGenerateGender(e.target.value as any)}
+                    className="w-full bg-slate-900 border border-slate-800 rounded px-2 py-1 text-slate-200 font-mono text-xs focus:outline-none focus:border-indigo-500 mt-1 cursor-pointer"
+                  >
+                    <option value="Male">Male</option>
+                    <option value="Female">Female</option>
+                    <option value="Other">Other</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-[11px] text-slate-400 flex items-center justify-between">
+                    <span>Rank (Citizen's Roles):</span>
+                    <span className="text-[9px] text-emerald-400 font-mono">{citizenRoles.length} Available</span>
+                  </label>
+                  <select
+                    value={selectedGenerateRank}
+                    onChange={(e) => setSelectedGenerateRank(e.target.value)}
+                    className="w-full bg-slate-900 border border-slate-800 rounded px-2 py-1 text-amber-300 font-semibold text-xs focus:outline-none focus:border-indigo-500 mt-1 cursor-pointer"
+                  >
+                    {citizenRoles.map((r) => (
+                      <option key={r.id} value={r.name} className="bg-slate-950 text-slate-200">
+                        {r.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div className="text-[10px] text-slate-400 flex items-center justify-between pt-1 bg-slate-900/60 px-2 py-1 rounded border border-slate-800/60">
+                <span className="text-slate-400">Card Serial: <strong className="text-sky-400 font-mono">{currentSerialId}</strong></span>
+                <span className="text-slate-400">Active Rank: <strong className="text-amber-400">{selectedGenerateRank}</strong></span>
               </div>
             </div>
 
@@ -1034,6 +737,41 @@ client.login(token).catch((err) => {
               </button>
             </div>
           </div>
+
+          {/* 1 Card Per Person Policy Warning */}
+          {duplicateWarning && (
+            <div className="bg-amber-950/40 border border-amber-500/50 rounded-lg p-3 text-xs text-amber-200 flex items-start gap-2.5">
+              <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+              <div className="flex-1 flex flex-col gap-1">
+                <div className="font-bold flex items-center gap-2">
+                  <span>1 Card Per Person Policy Block</span>
+                  {duplicateWarning.existingCard && (
+                    <span className="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 text-[10px] font-mono">
+                      {duplicateWarning.existingCard.serialId}
+                    </span>
+                  )}
+                </div>
+                <p className="text-[11px] text-amber-300/90 leading-relaxed">
+                  {duplicateWarning.message}
+                </p>
+                {duplicateWarning.existingCard && (
+                  <div className="flex items-center gap-2 mt-1">
+                    <button
+                      onClick={() => {
+                        setShowTargetInput(duplicateWarning.existingCard?.serialId || '');
+                        setActiveTab('show');
+                        handleExecuteShow(duplicateWarning.existingCard?.serialId);
+                      }}
+                      className="px-2.5 py-1 rounded bg-amber-600 hover:bg-amber-500 text-white font-medium text-[11px] cursor-pointer flex items-center gap-1.5 transition-colors"
+                    >
+                      <Eye className="w-3.5 h-3.5" />
+                      <span>View Existing Card with /card show</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* Quick list of recently registered cards */}
           <div className="bg-slate-950 p-3 rounded-lg border border-slate-800 flex flex-col gap-2">
@@ -1066,6 +804,128 @@ client.login(token).catch((err) => {
                 </div>
               ))}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* TAB: /card show [citizen] */}
+      {activeTab === 'show' && (
+        <div className="flex flex-col gap-3">
+          <div className="bg-slate-950 p-4 rounded-lg border border-slate-800 flex flex-col gap-3">
+            <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+              <div className="flex items-center gap-2">
+                <IdCard className="w-4 h-4 text-emerald-400" />
+                <label className="text-slate-200 font-semibold">
+                  Retrieve Citizen Card from Central Database (<code className="text-emerald-400">/card show</code>):
+                </label>
+              </div>
+              <span className="text-[11px] text-slate-400">
+                1 Card Per Person Policy • Server Template Rendered
+              </span>
+            </div>
+
+            <div className="flex gap-2">
+              <div className="relative flex-1">
+                <input
+                  type="text"
+                  value={showTargetInput}
+                  onChange={(e) => setShowTargetInput(e.target.value)}
+                  placeholder="Enter Discord User ID, Discord Tag, Roblox Username, or Serial ID..."
+                  className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-200 font-mono focus:outline-none focus:border-emerald-500"
+                />
+              </div>
+              <button
+                onClick={() => handleExecuteShow()}
+                disabled={showingCard}
+                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded-lg font-semibold text-xs flex items-center gap-1.5 cursor-pointer transition-colors"
+              >
+                {showingCard ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
+                <span>Fetch Card</span>
+              </button>
+            </div>
+
+            {/* Quick selectors from vault */}
+            {vaultCards.length > 0 && (
+              <div className="flex flex-wrap items-center gap-1.5 pt-1 text-[11px]">
+                <span className="text-slate-500">Quick view from database:</span>
+                {vaultCards.slice(0, 4).map((c) => (
+                  <button
+                    key={c.serialId}
+                    onClick={() => {
+                      setShowTargetInput(c.serialId);
+                      handleExecuteShow(c.serialId);
+                    }}
+                    className="px-2 py-0.5 rounded bg-slate-900 border border-slate-800 hover:border-emerald-500 text-emerald-400 font-mono text-[10px] cursor-pointer transition-colors"
+                  >
+                    {c.issuedTo.fullName} ({c.serialId})
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {/* Show Results Display */}
+            {showResult && (
+              <div
+                className={`p-4 rounded-lg border text-xs flex flex-col gap-3 ${
+                  showResult.found
+                    ? 'bg-emerald-950/20 border-emerald-500/40 text-slate-200'
+                    : 'bg-rose-950/20 border-rose-500/40 text-rose-300'
+                }`}
+              >
+                {showResult.found && showResult.card ? (
+                  <div className="flex flex-col gap-3">
+                    <div className="flex items-center justify-between pb-2 border-b border-slate-800">
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono text-emerald-400 font-bold text-sm">
+                          {showResult.card.serialId}
+                        </span>
+                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                          {showResult.card.status}
+                        </span>
+                      </div>
+                      <span className="text-[11px] text-slate-400 font-mono">
+                        Issued: {new Date(showResult.card.issuedAt).toLocaleDateString()}
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 text-[11px]">
+                      <div>
+                        <span className="text-slate-400">Citizen Name:</span>
+                        <p className="font-bold text-slate-100">{showResult.card.issuedTo.fullName}</p>
+                      </div>
+                      <div>
+                        <span className="text-slate-400">Rank / Role:</span>
+                        <p className="font-bold text-amber-400">{showResult.card.issuedTo.assignedRank}</p>
+                      </div>
+                      <div>
+                        <span className="text-slate-400">Roblox Identity:</span>
+                        <p className="font-mono text-sky-400">@{showResult.card.issuedTo.robloxUsername || 'Unlinked'}</p>
+                      </div>
+                      <div>
+                        <span className="text-slate-400">Discord ID:</span>
+                        <p className="font-mono text-slate-300">{showResult.card.issuedTo.discordId}</p>
+                      </div>
+                    </div>
+
+                    <div className="bg-slate-900/80 p-2.5 rounded border border-slate-800 text-[11px] flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <span className="text-slate-400">Server Nickname:</span>
+                        <code className="font-mono text-emerald-300">{showResult.card.serverNickname}</code>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-slate-400">Issued by:</span>
+                        <span className="text-amber-300 font-medium">{showResult.card.issuedBy.discordTag}</span>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
+                    <span>{showResult.message || 'No active citizen card found in the database.'}</span>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
       )}
