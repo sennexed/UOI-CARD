@@ -1,0 +1,6 @@
+{
+  "name": "UOI ID Card Data Processor",
+  "description": "Backend data processing module and Canvas scripting node for Union of Indians (UOI) Roblox RTP community ID cards.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
