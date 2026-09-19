@@ -400,7 +400,26 @@ module.exports = {
       // 3. index.js starter file
       const indexJsContent = `require('dotenv').config();
 const { Client, GatewayIntentBits, REST, Routes } = require('discord.js');
-const cardCommand = require('./commands/card.js');
+
+let cardCommand;
+try {
+  cardCommand = require('./commands/card.js');
+} catch (err) {
+  console.error('❌ Failed to load commands/card.js:', err.message);
+  console.error('Ensure commands/card.js exists in the root directory.');
+  process.exit(1);
+}
+
+const token = (process.env.DISCORD_TOKEN || '').trim();
+
+if (!token || token === 'your_bot_token_here') {
+  console.error('=====================================================');
+  console.error('❌ CONFIG ERROR: DISCORD_TOKEN is missing or empty!');
+  console.error('Please create a .env file in the root directory with:');
+  console.error('DISCORD_TOKEN=your_real_bot_token');
+  console.error('=====================================================');
+  process.exit(1);
+}
 
 const client = new Client({
   intents: [
@@ -413,27 +432,39 @@ client.once('ready', async () => {
   console.log(\`✅ Logged in as \${client.user.tag}\`);
 
   // Register /card slash command
-  const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
+  const rest = new REST({ version: '10' }).setToken(token);
   try {
-    console.log('Registering slash commands...');
+    console.log('Registering slash commands with Discord API...');
     await rest.put(
       Routes.applicationCommands(client.user.id),
       { body: [cardCommand.data.toJSON()] },
     );
     console.log('✅ Registered /card slash command successfully.');
   } catch (error) {
-    console.error('Error registering commands:', error);
+    console.error('❌ Error registering slash commands:', error.message);
   }
 });
 
 client.on('interactionCreate', async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
   if (interaction.commandName === 'card') {
-    await cardCommand.execute(interaction);
+    try {
+      await cardCommand.execute(interaction);
+    } catch (err) {
+      console.error('Error executing /card command:', err);
+    }
   }
 });
 
-client.login(process.env.DISCORD_TOKEN);
+client.login(token).catch((err) => {
+  console.error('❌ Discord bot login failed:', err.message);
+  if (err.message.toLowerCase().includes('disallowed intents') || err.message.toLowerCase().includes('privileged')) {
+    console.error('👉 FIX: Go to https://discord.com/developers/applications -> Your Bot -> Bot tab -> Enable "Server Members Intent"!');
+  } else if (err.message.toLowerCase().includes('token') || err.message.toLowerCase().includes('unauthorized')) {
+    console.error('👉 FIX: Your DISCORD_TOKEN is incorrect. Re-copy the token from the Discord Developer Portal without quotes.');
+  }
+  process.exit(1);
+});
 `;
       zip.file('index.js', indexJsContent);
 
@@ -1268,6 +1299,46 @@ DISCORD_TOKEN=your_bot_token_from_discord_developer_portal
                     </div>
                   </div>
                 )}
+
+                {/* Common NPM Errors & Immediate Fixes Box */}
+                <div className="mt-2 p-3 bg-red-950/30 border border-red-500/30 rounded-lg text-xs">
+                  <h5 className="font-semibold text-red-300 flex items-center gap-1.5 mb-2">
+                    <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />
+                    Having an NPM or Startup Error on WispByte? Check These 4 Fixes:
+                  </h5>
+                  <div className="space-y-2 text-[11px] text-slate-300">
+                    <div className="bg-slate-950/80 p-2 rounded border border-slate-800">
+                      <strong className="text-amber-300">1. npm ERR! code ELIFECYCLE (Exit status 1)</strong>
+                      <p className="text-slate-400 mt-0.5">
+                        • Look 2–5 lines <strong className="text-white">above</strong> the <code>npm ERR!</code> message in the console. The actual error will be there!
+                        <br />• Most common reason: Missing or incorrect <code>DISCORD_TOKEN</code> in your <code>.env</code> file, or missing <strong className="text-white">Server Members Intent</strong> in the Discord Developer Portal.
+                      </p>
+                    </div>
+
+                    <div className="bg-slate-950/80 p-2 rounded border border-slate-800">
+                      <strong className="text-amber-300">2. npm ERR! code EBADENGINE (Unsupported engine)</strong>
+                      <p className="text-slate-400 mt-0.5">
+                        • Discord.js v14 requires <strong className="text-white">Node.js 18 or 20</strong>.
+                        <br />• In WispByte, go to the <strong className="text-white">Startup</strong> tab &gt; Docker Image / Container Settings &gt; Switch to <code>Node.js 18</code> or <code>Node.js 20</code>, then restart.
+                      </p>
+                    </div>
+
+                    <div className="bg-slate-950/80 p-2 rounded border border-slate-800">
+                      <strong className="text-amber-300">3. npm ERR! code ENOENT (no such file or directory, open package.json)</strong>
+                      <p className="text-slate-400 mt-0.5">
+                        • Your bot files were uploaded inside a nested folder (e.g. <code>repo-main/package.json</code>) instead of the server's root folder.
+                        <br />• Move <code>package.json</code>, <code>index.js</code>, and the <code>commands/</code> folder directly into the root <code>/home/container/</code> folder in the WispByte Files tab.
+                      </p>
+                    </div>
+
+                    <div className="bg-slate-950/80 p-2 rounded border border-slate-800">
+                      <strong className="text-amber-300">4. Disallowed Intents / Privileged intent provided is not allowed</strong>
+                      <p className="text-slate-400 mt-0.5">
+                        • Go to <a href="https://discord.com/developers/applications" target="_blank" rel="noreferrer" className="text-indigo-400 hover:underline">discord.com/developers/applications</a> &gt; Click your Bot &gt; <strong>Bot</strong> tab &gt; Scroll down to <strong>Privileged Gateway Intents</strong> &gt; Check <strong>Server Members Intent</strong> &gt; Save changes.
+                      </p>
+                    </div>
+                  </div>
+                </div>
               </div>
             )}
           </div>
