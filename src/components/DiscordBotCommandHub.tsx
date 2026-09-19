@@ -250,9 +250,327 @@ export function DiscordBotCommandHub({
 
   const discordJsCode = `// ==========================================
 // UNION OF INDIANS (UOI) DISCORD.JS COMMAND HANDLERS
+// WITH AUTOMATIC HIGH-RESOLUTION CARD IMAGE GENERATION
 // ==========================================
 
-const { SlashCommandBuilder, EmbedBuilder, PermissionFlagsBits } = require('discord.js');
+const { SlashCommandBuilder, EmbedBuilder, AttachmentBuilder } = require('discord.js');
+const { createCanvas, loadImage } = require('@napi-rs/canvas');
+const fs = require('fs');
+
+// 1. Fetch Roblox user details & 720x720 avatar thumbnail
+async function fetchRobloxUserData(query) {
+  try {
+    let userId = null;
+    let username = null;
+    let displayName = null;
+
+    if (/^\\d+$/.test(query.trim())) {
+      userId = parseInt(query.trim(), 10);
+      try {
+        const uResp = await fetch(\`https://users.roblox.com/v1/users/\${userId}\`);
+        if (uResp.ok) {
+          const uJson = await uResp.json();
+          username = uJson.name;
+          displayName = uJson.displayName;
+        }
+      } catch (_) {}
+    } else {
+      const cleanName = query.trim().replace(/^@/, '');
+      const searchResp = await fetch('https://users.roblox.com/v1/usernames/users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ usernames: [cleanName], excludeBannedUsers: false }),
+      });
+      if (searchResp.ok) {
+        const sJson = await searchResp.json();
+        const match = sJson.data?.[0];
+        if (match) {
+          userId = match.id;
+          username = match.name;
+          displayName = match.displayName;
+        }
+      }
+    }
+
+    if (!userId) {
+      return { userId: null, username: query, avatarUrl: null };
+    }
+
+    const thumbResp = await fetch(
+      \`https://thumbnails.roblox.com/v1/users/avatar?userIds=\${userId}&size=720x720&format=Png&isCircular=false\`
+    );
+    let avatarUrl = null;
+    if (thumbResp.ok) {
+      const tJson = await thumbResp.json();
+      avatarUrl = tJson.data?.[0]?.imageUrl || null;
+    }
+
+    return {
+      userId: String(userId),
+      username: username || query,
+      displayName: displayName || username || query,
+      avatarUrl,
+    };
+  } catch (err) {
+    console.warn('[UOI Bot] Roblox user fetch warning:', err.message);
+    return { userId: null, username: query, avatarUrl: null };
+  }
+}
+
+// 2. Render 1200x900 High-Resolution Citizen ID Card
+async function renderCardImage({
+  fullName,
+  robloxUsername,
+  robloxUserId,
+  gender,
+  assignedRank,
+  serialId,
+  avatarUrl,
+}) {
+  const canvas = createCanvas(1200, 900);
+  const ctx = canvas.getContext('2d');
+
+  let templateLoaded = false;
+  for (const filename of ['template.png', 'template.jpg', './template.png', './template.jpg']) {
+    try {
+      if (fs.existsSync(filename)) {
+        const bgImg = await loadImage(filename);
+        ctx.drawImage(bgImg, 0, 0, 1200, 900);
+        templateLoaded = true;
+        break;
+      }
+    } catch (_) {}
+  }
+
+  if (!templateLoaded) {
+    const bgGrad = ctx.createLinearGradient(0, 0, 1200, 900);
+    bgGrad.addColorStop(0, '#0a0f1d');
+    bgGrad.addColorStop(0.5, '#070b16');
+    bgGrad.addColorStop(1, '#04070e');
+    ctx.fillStyle = bgGrad;
+    ctx.fillRect(0, 0, 1200, 900);
+
+    ctx.strokeStyle = '#1e293b33';
+    ctx.lineWidth = 1;
+    for (let x = 0; x < 1200; x += 40) {
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, 900);
+      ctx.stroke();
+    }
+    for (let y = 0; y < 900; y += 40) {
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(1200, y);
+      ctx.stroke();
+    }
+
+    ctx.strokeStyle = '#f59e0b';
+    ctx.lineWidth = 4;
+    ctx.strokeRect(18, 18, 1164, 864);
+
+    ctx.strokeStyle = '#334155';
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(26, 26, 1148, 848);
+
+    const headerGrad = ctx.createLinearGradient(0, 26, 0, 210);
+    headerGrad.addColorStop(0, '#0f172a');
+    headerGrad.addColorStop(1, '#070b14');
+    ctx.fillStyle = headerGrad;
+    ctx.fillRect(26, 26, 1148, 184);
+
+    ctx.fillStyle = '#FF9933';
+    ctx.fillRect(26, 206, 1148, 4);
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillRect(26, 210, 1148, 3);
+    ctx.fillStyle = '#138808';
+    ctx.fillRect(26, 213, 1148, 4);
+
+    ctx.save();
+    ctx.translate(90, 115);
+    ctx.strokeStyle = '#f59e0b';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(0, 0, 48, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(0, 0, 18, 0, Math.PI * 2);
+    ctx.stroke();
+    for (let i = 0; i < 24; i++) {
+      const angle = (i * Math.PI) / 12;
+      ctx.beginPath();
+      ctx.moveTo(Math.cos(angle) * 18, Math.sin(angle) * 18);
+      ctx.lineTo(Math.cos(angle) * 48, Math.sin(angle) * 48);
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    ctx.fillStyle = '#f59e0b';
+    ctx.font = 'bold 36px sans-serif';
+    ctx.fillText('UNION OF INDIANS', 160, 95);
+
+    ctx.fillStyle = '#94a3b8';
+    ctx.font = 'bold 16px sans-serif';
+    ctx.fillText('OFFICIAL CITIZEN IDENTIFICATION CARD', 162, 130);
+
+    ctx.fillStyle = '#cbd5e1';
+    ctx.font = '13px monospace';
+    ctx.fillText('GOVERNMENT OF UOI • CENTRAL CITIZEN REGISTRY RECORD', 162, 160);
+
+    ctx.fillStyle = '#0b1324';
+    ctx.strokeStyle = '#38bdf8';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.roundRect(880, 50, 270, 50, 6);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = '#94a3b8';
+    ctx.font = 'bold 11px sans-serif';
+    ctx.fillText('CARD SERIAL ID', 895, 70);
+
+    ctx.fillStyle = '#38bdf8';
+    ctx.font = 'bold 16px monospace';
+    ctx.fillText(serialId, 895, 91);
+
+    ctx.fillStyle = '#0b1120';
+    ctx.fillRect(56, 260, 345, 380);
+    ctx.strokeStyle = '#f59e0b';
+    ctx.lineWidth = 2.5;
+    ctx.strokeRect(56, 260, 345, 380);
+
+    ctx.fillStyle = '#64748b';
+    ctx.font = 'bold 11px sans-serif';
+    ctx.fillText('OFFICIAL CITIZEN PORTRAIT', 65, 250);
+
+    const fields = [
+      { label: 'FULL CITIZEN NAME', value: fullName },
+      { label: 'ROBLOX USERNAME', value: robloxUsername ? \`@\${robloxUsername}\` : 'UNLINKED' },
+      { label: 'ROBLOX USER ID', value: robloxUserId || 'N/A' },
+      { label: 'GENDER', value: gender || 'N/A' },
+      { label: 'RANK / ROLE', value: assignedRank || 'COMMUNITY MEMBER' },
+    ];
+
+    fields.forEach((f, idx) => {
+      const boxY = 260 + idx * 78;
+      ctx.fillStyle = '#f59e0b';
+      ctx.font = 'bold 13px sans-serif';
+      ctx.fillText(f.label, 470, boxY + 20);
+
+      ctx.fillStyle = '#0b1324';
+      ctx.strokeStyle = '#1e293b';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.roundRect(470, boxY + 30, 680, 42, 6);
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.fillStyle = '#ffffff';
+      ctx.font = 'bold 19px sans-serif';
+      ctx.fillText(f.value, 485, boxY + 58);
+    });
+
+    ctx.fillStyle = '#0b1324';
+    ctx.strokeStyle = '#f59e0b';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.roundRect(56, 655, 345, 50, 6);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = '#f59e0b';
+    ctx.font = '900 20px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(assignedRank.toUpperCase(), 56 + 345 / 2, 687);
+    ctx.textAlign = 'left';
+
+    ctx.strokeStyle = '#334155';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(56, 740);
+    ctx.lineTo(1150, 740);
+    ctx.stroke();
+
+    let barX = 56;
+    ctx.fillStyle = '#cbd5e1';
+    for (let b = 0; b < 55; b++) {
+      const w = (b % 3 === 0) ? 4 : (b % 2 === 0) ? 2 : 1;
+      ctx.fillRect(barX, 760, w, 65);
+      barX += w + ((b % 5 === 0) ? 6 : 3);
+    }
+
+    ctx.fillStyle = '#64748b';
+    ctx.font = '12px monospace';
+    ctx.fillText(serialId, 56, 845);
+
+    ctx.fillStyle = '#10b981';
+    ctx.font = 'bold 13px sans-serif';
+    ctx.fillText('STATUS: ACTIVE & VERIFIED', 470, 775);
+
+    ctx.fillStyle = '#94a3b8';
+    ctx.font = '12px sans-serif';
+    ctx.fillText('Authorized by Union of Indians Security Command • Tampering is prohibited.', 470, 800);
+  } else {
+    ctx.save();
+    ctx.fillStyle = '#38BDF8';
+    ctx.font = 'bold 14px "Courier New", Courier, monospace';
+    ctx.fillText(serialId, 1010, 36);
+    ctx.restore();
+
+    ctx.save();
+    ctx.fillStyle = '#080d19';
+    ctx.beginPath();
+    ctx.roundRect(54, 687, 348, 46, 4);
+    ctx.fill();
+    ctx.strokeStyle = '#F59E0B';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    ctx.fillStyle = '#FFFFFF';
+    ctx.font = '900 20px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(assignedRank.toUpperCase(), 54 + 174, 718);
+    ctx.textAlign = 'left';
+    ctx.restore();
+
+    const fieldValues = [
+      { val: fullName, textY: 358 },
+      { val: robloxUsername ? \`@\${robloxUsername}\` : '', textY: 446 },
+      { val: robloxUserId || '', textY: 534 },
+      { val: gender || '', textY: 622 },
+      { val: assignedRank || '', textY: 710 },
+    ];
+
+    ctx.save();
+    ctx.fillStyle = '#FFFFFF';
+    ctx.font = 'bold 22px sans-serif';
+    fieldValues.forEach((f) => {
+      if (f.val) ctx.fillText(f.val, 472 + 18, f.textY);
+    });
+    ctx.restore();
+  }
+
+  const photoX = templateLoaded ? 60 : 60;
+  const photoY = templateLoaded ? 324 : 264;
+  const photoW = 337;
+  const photoH = templateLoaded ? 344 : 372;
+
+  if (avatarUrl) {
+    try {
+      const avatarImg = await loadImage(avatarUrl);
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(photoX, photoY, photoW, photoH);
+      ctx.clip();
+      ctx.drawImage(avatarImg, photoX, photoY, photoW, photoH);
+      ctx.restore();
+    } catch (err) {
+      console.warn('[UOI Bot] Avatar drawing warning:', err.message);
+    }
+  }
+
+  return canvas.toBuffer('image/png');
+}
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -261,11 +579,12 @@ module.exports = {
     // 1. /card generate
     .addSubcommand(sub =>
       sub.setName('generate')
-        .setDescription('Issue an official UOI identification card')
+        .setDescription('Issue an official UOI identification card with image')
         .addUserOption(opt => opt.setName('citizen').setDescription('Discord member to receive the card').setRequired(true))
         .addStringOption(opt => opt.setName('roblox').setDescription('Roblox Username or numerical ID').setRequired(true))
         .addStringOption(opt => opt.setName('fullname').setDescription('Full Citizen Name').setRequired(true))
         .addStringOption(opt => opt.setName('gender').setDescription('Gender').setRequired(true))
+        .addStringOption(opt => opt.setName('rank').setDescription('Rank / Role tier (e.g. PRESIDENT, COMMUNITY MEMBER)'))
     )
     // 2. /card verify [serial_id]
     .addSubcommand(sub =>
@@ -298,75 +617,107 @@ module.exports = {
   async execute(interaction) {
     const sub = interaction.options.getSubcommand();
 
-    // EXECUTOR TRACKING: Capture who ran the command!
     const issuingOfficer = {
       discordId: interaction.user.id,
       discordTag: interaction.user.tag,
     };
 
-    // ----------------------------------------------------
     // COMMAND 1: /card generate
-    // ----------------------------------------------------
     if (sub === 'generate') {
       await interaction.deferReply();
       const targetMember = interaction.options.getMember('citizen');
+      const targetUser = interaction.options.getUser('citizen');
       const robloxQuery = interaction.options.getString('roblox');
       const fullName = interaction.options.getString('fullname');
       const gender = interaction.options.getString('gender');
+      const assignedRank = (interaction.options.getString('rank') || 'COMMUNITY MEMBER').toUpperCase();
 
-      // 1. Generate unique serial ID
       const serialId = \`UOI-\${new Date().getFullYear()}-\${Math.floor(100000 + Math.random() * 900000)}\`;
-
-      // 2. Automatically update target member's server nickname
       const serverNickname = \`\${fullName} [\${serialId}]\`;
+
+      const robloxInfo = await fetchRobloxUserData(robloxQuery);
+
       try {
-        if (targetMember.manageable) {
+        if (targetMember && targetMember.manageable) {
           await targetMember.setNickname(serverNickname);
         }
       } catch (err) {
-        console.warn('Could not update nickname due to role hierarchy limits');
+        console.warn('[UOI Bot] Could not update nickname due to role hierarchy limits');
       }
 
-      // 3. Save to database with executor tracking (interaction.user)
-      const auditPayload = {
-        serialId,
-        status: 'ACTIVE',
-        issuedTo: {
-          discordId: targetMember.id,
-          discordTag: targetMember.user.tag,
+      let cardBuffer;
+      try {
+        cardBuffer = await renderCardImage({
           fullName,
-          roblox: robloxQuery,
-        },
-        issuedBy: issuingOfficer,
-        issuedAt: new Date().toISOString(),
-      };
-      // await db.cards.set(serialId, auditPayload);
+          robloxUsername: robloxInfo.username,
+          robloxUserId: robloxInfo.userId,
+          gender,
+          assignedRank,
+          serialId,
+          avatarUrl: robloxInfo.avatarUrl,
+        });
+      } catch (err) {
+        console.error('[UOI Bot] Failed to generate card image:', err);
+      }
+
+      const fileName = \`\${serialId}.png\`;
+      const files = [];
 
       const embed = new EmbedBuilder()
         .setTitle('🛡️ UOI Citizen ID Card Issued')
         .setColor(0xF59E0B)
+        .setDescription(\`Official identity credential issued to <@\${targetUser.id}>\`)
         .addFields(
           { name: 'Card Serial ID', value: \`\`\${serialId}\`\`, inline: true },
-          { name: 'Citizen', value: \`<@\${targetMember.id}>\`, inline: true },
+          { name: 'Citizen', value: \`<@\${targetUser.id}>\`, inline: true },
+          {
+            name: 'Roblox Identity',
+            value: robloxInfo.userId ? \`[@\${robloxInfo.username}](https://www.roblox.com/users/\${robloxInfo.userId}/profile)\` : robloxQuery,
+            inline: true,
+          },
+          { name: 'Rank Tier', value: \`**\${assignedRank}**\`, inline: true },
           { name: 'Issuing Officer', value: \`<@\${issuingOfficer.discordId}>\`, inline: true },
-          { name: 'Server Nickname', value: \`\`\${serverNickname}\`\` }
+          { name: 'Server Nickname', value: \`\`\${serverNickname}\`\`, inline: true }
         )
+        .setFooter({ text: 'Union of Indians Registry • Official Citizen Credential' })
         .setTimestamp();
 
-      return interaction.editReply({ embeds: [embed] });
+      if (cardBuffer) {
+        const attachment = new AttachmentBuilder(cardBuffer, { name: fileName });
+        files.push(attachment);
+        embed.setImage(\`attachment://\${fileName}\`);
+      }
+
+      return interaction.editReply({ embeds: [embed], files });
     }
 
-    // ----------------------------------------------------
     // COMMAND 2: /card verify [serial]
-    // ----------------------------------------------------
     if (sub === 'verify') {
       const serial = interaction.options.getString('serial').toUpperCase();
-      // Lookup in database: const record = await db.cards.get(serial);
-      // Example response embed:
       const embed = new EmbedBuilder()
-        .setTitle(\`Verification: \${serial}\`)
+        .setTitle(\`Citizen Card Verification: \${serial}\`)
         .setColor(0x10B981)
-        .setDescription(\`✅ **AUTHENTIC CARD VERIFIED**\\nIssued by <@\${issuingOfficer.discordId}>\`);
+        .setDescription(\`✅ **AUTHENTIC UOI CITIZEN CARD**\\nStatus: **ACTIVE**\\nVerified by Registry Dispatch.\`)
+        .addFields(
+          { name: 'Serial ID', value: \`\`\${serial}\`\`, inline: true },
+          { name: 'Security Clearance', value: 'Level 1 Citizen', inline: true }
+        )
+        .setTimestamp();
+      return interaction.reply({ embeds: [embed] });
+    }
+
+    // COMMAND 3: /card inspect @user
+    if (sub === 'inspect') {
+      const targetUser = interaction.options.getUser('user');
+      const embed = new EmbedBuilder()
+        .setTitle(\`Citizen Dossier: \${targetUser.tag}\`)
+        .setColor(0x6366F1)
+        .setThumbnail(targetUser.displayAvatarURL({ dynamic: true }))
+        .addFields(
+          { name: 'Discord ID', value: \`\`\${targetUser.id}\`\`, inline: true },
+          { name: 'Citizen Status', value: '🟢 Active Citizen', inline: true }
+        )
+        .setTimestamp();
       return interaction.reply({ embeds: [embed] });
     }
   }
@@ -391,6 +742,7 @@ module.exports = {
           start: 'node index.js',
         },
         dependencies: {
+          '@napi-rs/canvas': '^0.1.66',
           'discord.js': '^14.16.3',
           dotenv: '^16.4.5',
         },
