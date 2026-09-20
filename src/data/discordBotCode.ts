@@ -3,7 +3,17 @@ export const discordJsCode = `// ==========================================
 // WITH PERSISTENT JSON DATABASE & PER-SERVER TEMPLATES
 // ==========================================
 
-const { SlashCommandBuilder, EmbedBuilder, AttachmentBuilder, PermissionFlagsBits } = require('discord.js');
+const {
+  SlashCommandBuilder,
+  EmbedBuilder,
+  AttachmentBuilder,
+  PermissionFlagsBits,
+  ActionRowBuilder,
+  StringSelectMenuBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+  ComponentType,
+} = require('discord.js');
 const { createCanvas, loadImage } = require('@napi-rs/canvas');
 const fs = require('fs');
 const path = require('path');
@@ -302,8 +312,8 @@ module.exports = {
         .addStringOption(opt => opt.setName('fullname').setDescription('Full Citizen Name').setRequired(true))
         .addStringOption(opt =>
           opt.setName('gender')
-            .setDescription('Select citizen gender')
-            .setRequired(true)
+            .setDescription('Select citizen gender (Male / Female / Other - or select via dialogue box)')
+            .setRequired(false)
             .addChoices(
               { name: 'Male', value: 'Male' },
               { name: 'Female', value: 'Female' },
@@ -313,6 +323,7 @@ module.exports = {
         .addStringOption(opt =>
           opt.setName('rank')
             .setDescription('Rank / Role tier (only shows roles this citizen possesses)')
+            .setRequired(false)
             .setAutocomplete(true)
         )
     )
@@ -571,169 +582,330 @@ module.exports = {
       }
       const robloxQuery = interaction.options.getString('roblox');
       const fullName = interaction.options.getString('fullname');
-      const gender = interaction.options.getString('gender') || 'Other';
-      
-      // Strict Role Check: only allow roles that this particular citizen possesses
-      let requestedRank = interaction.options.getString('rank');
-      let assignedRank = 'COMMUNITY MEMBER';
+      const rawGender = interaction.options.getString('gender');
+      const rawRank = interaction.options.getString('rank');
 
-      if (targetMember && targetMember.roles) {
-        const memberRoles = targetMember.roles.cache
-          .filter(r => r.id !== interaction.guild.id && !r.managed)
-          .sort((a, b) => b.position - a.position);
+      // Shared issuing function executed either directly or via Interactive Dialogue Box
+      async function issueCitizenCard(genderToIssue, rankToIssue) {
+        genderToIssue = ['Male', 'Female'].includes(genderToIssue) ? genderToIssue : (genderToIssue?.toLowerCase() === 'female' ? 'Female' : genderToIssue?.toLowerCase() === 'male' ? 'Male' : 'Other');
+        let assignedRank = 'COMMUNITY MEMBER';
 
-        if (!requestedRank) {
-          // Default automatically to the highest server role this citizen possesses
-          const topRole = memberRoles.first();
-          assignedRank = topRole ? topRole.name.toUpperCase() : 'COMMUNITY MEMBER';
-        } else {
-          requestedRank = requestedRank.trim().toUpperCase();
-          const hasRole = memberRoles.some(r => r.name.toUpperCase() === requestedRank);
-          if (!hasRole && requestedRank !== 'COMMUNITY MEMBER') {
-            return interaction.editReply({
-              content: \`⚠️ **Role Assignment Error**: <@\${targetUser.id}> does not hold the role **\${requestedRank}** in this server!\\\\nUnder Union security policy, the rank option is strictly restricted to roles this citizen actually possesses.\`,
-            });
-          }
-          assignedRank = requestedRank;
-        }
-      } else {
-        assignedRank = (requestedRank || 'COMMUNITY MEMBER').toUpperCase();
-      }
+        if (targetMember && targetMember.roles) {
+          const memberRoles = targetMember.roles.cache
+            .filter(r => r.id !== interaction.guild.id && !r.managed)
+            .sort((a, b) => b.position - a.position);
 
-      // STRICT RULE: Only 1 card per person
-      const db = loadDatabase();
-      const existingCard = db.cards[targetUser.id];
-      if (existingCard && existingCard.status === 'ACTIVE') {
-        const embed = new EmbedBuilder()
-          .setTitle('⚠️ Card Generation Blocked: 1 Card Per Person')
-          .setColor(0xF59E0B)
-          .setDescription(
-            \`**<@\${targetUser.id}> already possesses an active UOI Citizen Card!**\\n\` +
-            \`Under Union regulations, each citizen is restricted to exactly **one card**.\`
-          )
-          .addFields(
-            { name: 'Existing Serial ID', value: \`\`\${existingCard.serialId}\`\`, inline: true },
-            { name: 'Full Name', value: existingCard.fullName, inline: true },
-            { name: 'Current Rank', value: \`**\${existingCard.assignedRank}**\`, inline: true },
-            { name: 'Roblox Username', value: \`@\${existingCard.robloxUsername || 'Unlinked'}\`, inline: true },
-            { name: 'Status', value: '🟢 ACTIVE CITIZEN', inline: true },
-            {
-              name: 'Issued On',
-              value: \`<t:\${Math.floor(new Date(existingCard.issuedAt).getTime() / 1000)}:R>\`,
-              inline: true,
+          if (!rankToIssue) {
+            const topRole = memberRoles.first();
+            assignedRank = topRole ? topRole.name.toUpperCase() : 'COMMUNITY MEMBER';
+          } else {
+            const cleanRank = rankToIssue.trim().toUpperCase();
+            const hasRole = memberRoles.some(r => r.name.toUpperCase() === cleanRank);
+            if (!hasRole && cleanRank !== 'COMMUNITY MEMBER') {
+              return interaction.editReply({
+                content: \`⚠️ **Role Assignment Error**: <@\${targetUser.id}> does not hold the role **\${cleanRank}** in this server!\\\\nUnder Union security policy, the rank option is strictly restricted to roles this citizen actually possesses.\`,
+                embeds: [],
+                components: [],
+              });
             }
-          )
-          .addFields({
-            name: '📋 What to do?',
-            value:
-              \`• Run \`/card show citizen:@\${targetUser.username}\` to view their existing registered card.\\n\` +
-              \`• Use \`/card promote\` to upgrade their rank.\\n\` +
-              \`• If the previous card was lost, an authorized officer must run \`/card revoke serial:\${existingCard.serialId}\` before re-issuing.\`,
-          })
-          .setFooter({ text: 'Union of Indians Registry • Strict Single-Card Enforcement' })
-          .setTimestamp();
-        return interaction.editReply({ embeds: [embed] });
-      }
-
-      const serialId = \`UOI-\${new Date().getFullYear()}-\${Math.floor(100000 + Math.random() * 900000)}\`;
-      const serverNickname = \`\${fullName} [\${serialId}]\`;
-
-      const robloxInfo = await fetchRobloxUserData(robloxQuery);
-
-      try {
-        if (targetMember && targetMember.manageable) {
-          await targetMember.setNickname(serverNickname);
+            assignedRank = cleanRank;
+          }
+        } else {
+          assignedRank = (rankToIssue || 'COMMUNITY MEMBER').toUpperCase();
         }
-      } catch (err) {
-        console.warn('[UOI Bot] Could not update nickname due to role hierarchy limits');
-      }
 
-      let cardBuffer = null;
-      let usedTemplate = false;
-      let templateSource = null;
-      try {
-        const renderResult = await renderCardImage({
-          guildId,
+        // STRICT RULE: Only 1 card per person
+        const db = loadDatabase();
+        const existingCard = db.cards[targetUser.id];
+        if (existingCard && existingCard.status === 'ACTIVE') {
+          const embed = new EmbedBuilder()
+            .setTitle('⚠️ Card Generation Blocked: 1 Card Per Person')
+            .setColor(0xF59E0B)
+            .setDescription(
+              \`**<@\${targetUser.id}> already possesses an active UOI Citizen Card!**\\\\n\` +
+              \`Under Union regulations, each citizen is restricted to exactly **one card**.\`
+            )
+            .addFields(
+              { name: 'Existing Serial ID', value: \`\`\${existingCard.serialId}\`\`, inline: true },
+              { name: 'Full Name', value: existingCard.fullName, inline: true },
+              { name: 'Current Rank', value: \`**\${existingCard.assignedRank}**\`, inline: true },
+              { name: 'Roblox Username', value: \`@\${existingCard.robloxUsername || 'Unlinked'}\`, inline: true },
+              { name: 'Status', value: '🟢 ACTIVE CITIZEN', inline: true },
+              {
+                name: 'Issued On',
+                value: \`<t:\${Math.floor(new Date(existingCard.issuedAt).getTime() / 1000)}:R>\`,
+                inline: true,
+              }
+            )
+            .addFields({
+              name: '📋 What to do?',
+              value:
+                \`• Run \\\`/card show citizen:@\${targetUser.username}\\\` to view their existing registered card.\\\\n\` +
+                \`• Use \\\`/card promote\\\` to upgrade their rank.\\\\n\` +
+                \`• If the previous card was lost, an authorized officer must run \\\`/card revoke serial:\${existingCard.serialId}\\\` before re-issuing.\`,
+            })
+            .setFooter({ text: 'Union of Indians Registry • Strict Single-Card Enforcement' })
+            .setTimestamp();
+          return interaction.editReply({ embeds: [embed], components: [] });
+        }
+
+        const serialId = \`UOI-\${new Date().getFullYear()}-\${Math.floor(100000 + Math.random() * 900000)}\`;
+        const serverNickname = \`\${fullName} [\${serialId}]\`;
+
+        const robloxInfo = await fetchRobloxUserData(robloxQuery);
+
+        try {
+          if (targetMember && targetMember.manageable) {
+            await targetMember.setNickname(serverNickname);
+          }
+        } catch (err) {
+          console.warn('[UOI Bot] Could not update nickname due to role hierarchy limits');
+        }
+
+        let cardBuffer = null;
+        let usedTemplate = false;
+        let templateSource = null;
+        try {
+          const renderResult = await renderCardImage({
+            guildId,
+            fullName,
+            robloxUsername: robloxInfo.username,
+            robloxUserId: robloxInfo.userId,
+            gender: genderToIssue,
+            assignedRank,
+            serialId,
+            avatarUrl: robloxInfo.avatarUrl,
+          });
+          cardBuffer = renderResult.buffer;
+          usedTemplate = renderResult.usedTemplate;
+          templateSource = renderResult.source;
+        } catch (err) {
+          console.error('[UOI Bot] Failed to generate card image:', err);
+        }
+
+        // Save to persistent database (1 card per person)
+        const newCardRecord = {
+          discordId: targetUser.id,
+          discordTag: targetUser.tag,
+          guildId: guildId || null,
+          serialId,
           fullName,
           robloxUsername: robloxInfo.username,
           robloxUserId: robloxInfo.userId,
-          gender,
+          gender: genderToIssue,
           assignedRank,
-          serialId,
           avatarUrl: robloxInfo.avatarUrl,
-        });
-        cardBuffer = renderResult.buffer;
-        usedTemplate = renderResult.usedTemplate;
-        templateSource = renderResult.source;
-      } catch (err) {
-        console.error('[UOI Bot] Failed to generate card image:', err);
-      }
-
-      // Save to persistent database (1 card per person)
-      const newCardRecord = {
-        discordId: targetUser.id,
-        discordTag: targetUser.tag,
-        guildId: guildId || null,
-        serialId,
-        fullName,
-        robloxUsername: robloxInfo.username,
-        robloxUserId: robloxInfo.userId,
-        gender,
-        assignedRank,
-        avatarUrl: robloxInfo.avatarUrl,
-        issuedBy: {
-          discordId: issuingOfficer.discordId,
-          discordTag: issuingOfficer.discordTag,
-        },
-        issuedAt: new Date().toISOString(),
-        serverNickname,
-        status: 'ACTIVE',
-      };
-      db.cards[targetUser.id] = newCardRecord;
-      db.serToUser = db.serToUser || {};
-      db.serToUser[serialId] = targetUser.id;
-      saveDatabase(db);
-
-      const fileName = \`\${serialId}.png\`;
-      const files = [];
-
-      const embed = new EmbedBuilder()
-        .setTitle('🛡️ UOI Citizen ID Card Issued')
-        .setColor(usedTemplate ? 0x10B981 : 0xF59E0B)
-        .setDescription(\`Official identity credential issued to <@\${targetUser.id}>\`)
-        .addFields(
-          { name: 'Card Serial ID', value: \`\`\${serialId}\`\`, inline: true },
-          { name: 'Citizen', value: \`<@\${targetUser.id}>\`, inline: true },
-          {
-            name: 'Roblox Identity',
-            value: robloxInfo.userId ? \`[@\${robloxInfo.username}](https://www.roblox.com/users/\${robloxInfo.userId}/profile)\` : robloxQuery,
-            inline: true,
+          issuedBy: {
+            discordId: issuingOfficer.discordId,
+            discordTag: issuingOfficer.discordTag,
           },
-          { name: 'Rank Tier', value: \`**\${assignedRank}**\`, inline: true },
-          { name: 'Issuing Officer', value: \`<@\${issuingOfficer.discordId}>\`, inline: true },
-          { name: 'Server Nickname', value: \`\`\${serverNickname}\`\`, inline: true }
-        )
-        .setFooter({
-          text: usedTemplate
-            ? \`Saved to Database • Stamped with \${templateSource}\`
-            : '⚠️ Permanent template missing! Type /card set-template to upload it.',
-        })
-        .setTimestamp();
+          issuedAt: new Date().toISOString(),
+          serverNickname,
+          status: 'ACTIVE',
+        };
+        db.cards[targetUser.id] = newCardRecord;
+        db.serToUser = db.serToUser || {};
+        db.serToUser[serialId] = targetUser.id;
+        saveDatabase(db);
 
-      if (!usedTemplate) {
-        embed.addFields({
-          name: '⚠️ Template Notice',
-          value: 'This server has not uploaded its official template yet. Run \`/card set-template\` with your image attached!',
+        const fileName = \`\${serialId}.png\`;
+        const files = [];
+
+        const embed = new EmbedBuilder()
+          .setTitle('🛡️ UOI Citizen ID Card Issued')
+          .setColor(usedTemplate ? 0x10B981 : 0xF59E0B)
+          .setDescription(\`Official identity credential issued to <@\${targetUser.id}>\`)
+          .addFields(
+            { name: 'Card Serial ID', value: \`\`\${serialId}\`\`, inline: true },
+            { name: 'Citizen', value: \`<@\${targetUser.id}>\`, inline: true },
+            {
+              name: 'Roblox Identity',
+              value: robloxInfo.userId ? \`[@\${robloxInfo.username}](https://www.roblox.com/users/\${robloxInfo.userId}/profile)\` : robloxQuery,
+              inline: true,
+            },
+            { name: 'Gender', value: \`**\${genderToIssue}**\`, inline: true },
+            { name: 'Rank Tier', value: \`**\${assignedRank}**\`, inline: true },
+            { name: 'Issuing Officer', value: \`<@\${issuingOfficer.discordId}>\`, inline: true },
+            { name: 'Server Nickname', value: \`\`\${serverNickname}\`\`, inline: true }
+          )
+          .setFooter({
+            text: usedTemplate
+              ? \`Saved to Database • Stamped with \${templateSource}\`
+              : '⚠️ Permanent template missing! Type /card set-template to upload it.',
+          })
+          .setTimestamp();
+
+        if (!usedTemplate) {
+          embed.addFields({
+            name: '⚠️ Template Notice',
+            value: 'This server has not uploaded its official template yet. Run \\\`/card set-template\\\` with your image attached!',
+          });
+        }
+
+        if (cardBuffer) {
+          const attachment = new AttachmentBuilder(cardBuffer, { name: fileName });
+          files.push(attachment);
+          embed.setImage(\`attachment://\${fileName}\`);
+        }
+
+        return interaction.editReply({ embeds: [embed], files, components: [] });
+      }
+
+      // If either gender or rank was not provided via slash command options,
+      // present the interactive Dialogue Box (Select Menus) in Discord!
+      if (!rawGender || !rawRank) {
+        let memberRoles = [];
+        if (targetMember && targetMember.roles) {
+          memberRoles = targetMember.roles.cache
+            .filter(r => r.id !== interaction.guild.id && !r.managed)
+            .sort((a, b) => b.position - a.position);
+        }
+
+        let curGender = rawGender || 'Male';
+        let curRank = rawRank ? rawRank.trim().toUpperCase() : (memberRoles.first()?.name?.toUpperCase() || 'COMMUNITY MEMBER');
+
+        // Dialogue Box Component 1: Gender Dropdown Menu (Strict 3 choices)
+        const genderMenu = new StringSelectMenuBuilder()
+          .setCustomId('dialogue_select_gender')
+          .setPlaceholder(\`Gender Dialogue: \${curGender}\`)
+          .addOptions([
+            { label: 'Male', value: 'Male', description: 'Citizen identifies as Male', default: curGender === 'Male' },
+            { label: 'Female', value: 'Female', description: 'Citizen identifies as Female', default: curGender === 'Female' },
+            { label: 'Other', value: 'Other', description: 'Citizen identifies as Other', default: curGender === 'Other' },
+          ]);
+
+        // Dialogue Box Component 2: Rank Dropdown Menu (Strictly roles this person has)
+        const rankChoices = [];
+        const seenRanks = new Set();
+        if (memberRoles.size > 0) {
+          for (const role of memberRoles.values()) {
+            const cleanName = role.name.toUpperCase().slice(0, 100);
+            if (!seenRanks.has(cleanName) && rankChoices.length < 24) {
+              seenRanks.add(cleanName);
+              rankChoices.push({
+                label: role.name.slice(0, 100),
+                value: cleanName,
+                description: \`Citizen Server Role\`.slice(0, 100),
+                default: curRank === cleanName,
+              });
+            }
+          }
+        }
+        if (!seenRanks.has('COMMUNITY MEMBER')) {
+          rankChoices.push({
+            label: 'COMMUNITY MEMBER',
+            value: 'COMMUNITY MEMBER',
+            description: 'Default tier (no admin role)',
+            default: curRank === 'COMMUNITY MEMBER',
+          });
+        }
+
+        const rankMenu = new StringSelectMenuBuilder()
+          .setCustomId('dialogue_select_rank')
+          .setPlaceholder(\`Rank Dialogue: \${curRank}\`)
+          .addOptions(rankChoices);
+
+        const row1 = new ActionRowBuilder().addComponents(genderMenu);
+        const row2 = new ActionRowBuilder().addComponents(rankMenu);
+        const btnConfirm = new ButtonBuilder()
+          .setCustomId('dialogue_btn_confirm')
+          .setLabel('Confirm & Generate ID Card')
+          .setStyle(ButtonStyle.Success);
+        const btnCancel = new ButtonBuilder()
+          .setCustomId('dialogue_btn_cancel')
+          .setLabel('Cancel')
+          .setStyle(ButtonStyle.Secondary);
+        const row3 = new ActionRowBuilder().addComponents(btnConfirm, btnCancel);
+
+        const buildPromptEmbed = (g, r) => new EmbedBuilder()
+          .setTitle('🆔 Card Generation: Gender & Role Dialogue Box')
+          .setColor(0x3B82F6)
+          .setDescription(
+            \`Configure the **Gender** and **Role Rank** for **<@\${targetUser.id}>** using the dialogue boxes below:\\\\n\\\\n\` +
+            \`• **Citizen Name:** \${fullName}\\\\n\` +
+            \`• **Roblox Profile:** \${robloxQuery}\\\\n\` +
+            \`• **Selected Gender:** \`\${g}\` *(Male, Female, or Other)*\\\\n\` +
+            \`• **Selected Rank:** \`\${r}\` *(Only roles this citizen possesses)*\`
+          )
+          .setFooter({ text: 'Select from dropdown dialogue boxes below, then click Confirm' });
+
+        const promptMsg = await interaction.editReply({
+          embeds: [buildPromptEmbed(curGender, curRank)],
+          components: [row1, row2, row3],
         });
+
+        const collector = promptMsg.createMessageComponentCollector({
+          filter: (i) => i.user.id === interaction.user.id,
+          time: 120000,
+        });
+
+        collector.on('collect', async (i) => {
+          if (i.customId === 'dialogue_select_gender') {
+            curGender = i.values[0];
+            await i.update({
+              embeds: [buildPromptEmbed(curGender, curRank)],
+              components: [
+                new ActionRowBuilder().addComponents(
+                  new StringSelectMenuBuilder()
+                    .setCustomId('dialogue_select_gender')
+                    .setPlaceholder(\`Gender: \${curGender}\`)
+                    .addOptions([
+                      { label: 'Male', value: 'Male', description: 'Citizen identifies as Male', default: curGender === 'Male' },
+                      { label: 'Female', value: 'Female', description: 'Citizen identifies as Female', default: curGender === 'Female' },
+                      { label: 'Other', value: 'Other', description: 'Citizen identifies as Other', default: curGender === 'Other' },
+                    ])
+                ),
+                row2,
+                row3,
+              ],
+            });
+          } else if (i.customId === 'dialogue_select_rank') {
+            curRank = i.values[0];
+            await i.update({
+              embeds: [buildPromptEmbed(curGender, curRank)],
+              components: [
+                row1,
+                new ActionRowBuilder().addComponents(
+                  new StringSelectMenuBuilder()
+                    .setCustomId('dialogue_select_rank')
+                    .setPlaceholder(\`Rank: \${curRank}\`)
+                    .addOptions(rankChoices.map(rc => ({ ...rc, default: rc.value === curRank })))
+                ),
+                row3,
+              ],
+            });
+          } else if (i.customId === 'dialogue_btn_cancel') {
+            collector.stop('cancelled');
+            return i.update({
+              content: '❌ Card generation cancelled.',
+              embeds: [],
+              components: [],
+            });
+          } else if (i.customId === 'dialogue_btn_confirm') {
+            collector.stop('confirmed');
+            await i.update({
+              content: '⚙️ Rendering high-resolution security credentials...',
+              embeds: [],
+              components: [],
+            });
+            await issueCitizenCard(curGender, curRank);
+          }
+        });
+
+        collector.on('end', (collected, reason) => {
+          if (reason === 'time') {
+            interaction.editReply({
+              content: '⌛ Card dialogue timed out (2 minutes). Please run \\\`/card generate\\\` again.',
+              components: [],
+            }).catch(() => {});
+          }
+        });
+
+        return;
       }
 
-      if (cardBuffer) {
-        const attachment = new AttachmentBuilder(cardBuffer, { name: fileName });
-        files.push(attachment);
-        embed.setImage(\`attachment://\${fileName}\`);
-      }
-
-      return interaction.editReply({ embeds: [embed], files });
+      // If both gender and rank were provided directly in the slash command, issue immediately
+      return await issueCitizenCard(rawGender, rawRank);
     }
 
     // COMMAND: /card verify [serial]
@@ -865,62 +1037,116 @@ module.exports = {
 
   /**
    * Autocomplete handler for /card options
-   * Dynamically filters rank choices to ONLY the roles that this particular citizen possesses
+   * Dynamically filters rank choices to ONLY the roles that this particular citizen possesses,
+   * and provides gender choices.
    */
   async autocomplete(interaction) {
-    const focusedOption = interaction.options.getFocused(true);
+    try {
+      const focusedOption = interaction.options.getFocused(true);
 
-    if (focusedOption.name === 'rank') {
-      const sub = interaction.options.getSubcommand(false);
-      let choices = [];
-
-      if (sub === 'promote' && interaction.guild) {
-        // For /card promote: show server roles to promote to
-        const guildRoles = interaction.guild.roles.cache
-          .filter(r => r.id !== interaction.guild.id && !r.managed)
-          .sort((a, b) => b.position - a.position);
-        choices = guildRoles.map(r => ({
-          name: r.name,
-          value: r.name.toUpperCase(),
-        }));
-      } else {
-        // For /card generate: STRICT REQUIREMENT - Only show the roles that this particular person has
-        const targetUserId = interaction.options.get('citizen')?.value;
-
-        if (targetUserId && interaction.guild) {
-          try {
-            const member = interaction.guild.members.cache.get(targetUserId) ||
-              await interaction.guild.members.fetch(targetUserId).catch(() => null);
-            if (member && member.roles) {
-              // STRICT REQUIREMENT: Only show the roles that this particular person has in the rank option
-              const memberRoles = member.roles.cache
-                .filter(r => r.id !== interaction.guild.id && !r.managed)
-                .sort((a, b) => b.position - a.position);
-
-              choices = memberRoles.map(r => ({
-                name: r.name,
-                value: r.name.toUpperCase(),
-              }));
-            }
-          } catch (err) {
-            console.warn('[UOI Bot] Failed to fetch citizen roles for autocomplete:', err.message);
-          }
-        }
-
-        if (choices.length === 0) {
-          if (!targetUserId) {
-            choices = [{ name: '⚠️ Select the citizen option first to view their roles', value: 'COMMUNITY MEMBER' }];
-          } else {
-            choices = [{ name: 'COMMUNITY MEMBER (Default - No special roles held)', value: 'COMMUNITY MEMBER' }];
-          }
-        }
+      if (focusedOption.name === 'gender') {
+        const genderChoices = [
+          { name: 'Male', value: 'Male' },
+          { name: 'Female', value: 'Female' },
+          { name: 'Other', value: 'Other' },
+        ];
+        const searchVal = (focusedOption.value || '').toLowerCase();
+        let filtered = genderChoices.filter(c => c.name.toLowerCase().includes(searchVal));
+        if (filtered.length === 0) filtered = genderChoices;
+        return await interaction.respond(filtered);
       }
 
-      const filtered = choices
-        .filter(choice => choice.name.toLowerCase().includes(focusedOption.value.toLowerCase()))
-        .slice(0, 25);
+      if (focusedOption.name === 'rank') {
+        const sub = interaction.options.getSubcommand(false);
+        let choices = [];
 
-      await interaction.respond(filtered);
+        if (sub === 'promote' && interaction.guild) {
+          // For /card promote: show server roles to promote to
+          const guildRoles = interaction.guild.roles.cache
+            .filter(r => r.id !== interaction.guild.id && !r.managed)
+            .sort((a, b) => b.position - a.position);
+          choices = guildRoles.map(r => ({
+            name: r.name.slice(0, 100),
+            value: r.name.toUpperCase().slice(0, 100),
+          }));
+        } else {
+          // For /card generate: STRICT REQUIREMENT - Only show the roles that this particular person has
+          const targetUserId = interaction.options.get('citizen')?.value;
+
+          if (targetUserId && interaction.guild) {
+            try {
+              let member = interaction.guild.members.cache.get(targetUserId);
+              if (!member) {
+                member = await Promise.race([
+                  interaction.guild.members.fetch(targetUserId),
+                  new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 1200)),
+                ]).catch(() => null);
+              }
+
+              if (member && member.roles && member.roles.cache) {
+                // STRICT REQUIREMENT: Only show the roles that this particular person has in the rank option
+                const memberRoles = member.roles.cache
+                  .filter(r => r.id !== interaction.guild.id && !r.managed)
+                  .sort((a, b) => b.position - a.position);
+
+                choices = memberRoles.map(r => ({
+                  name: r.name.slice(0, 100),
+                  value: r.name.toUpperCase().slice(0, 100),
+                }));
+              }
+            } catch (err) {
+              console.warn('[UOI Bot] Role fetch error during autocomplete:', err.message);
+            }
+          }
+
+          if (choices.length === 0) {
+            if (!targetUserId) {
+              choices = [
+                { name: '⚠️ Select the citizen option first to view their roles', value: 'COMMUNITY MEMBER' },
+                { name: 'COMMUNITY MEMBER (Default Rank)', value: 'COMMUNITY MEMBER' },
+              ];
+            } else {
+              choices = [
+                { name: 'COMMUNITY MEMBER (Default - Citizen holds no special roles)', value: 'COMMUNITY MEMBER' },
+              ];
+            }
+          }
+        }
+
+        // De-duplicate choice values to strictly conform to Discord API specs
+        const seenValues = new Set();
+        const uniqueChoices = [];
+        for (const c of choices) {
+          if (!seenValues.has(c.value) && c.name && c.value) {
+            seenValues.add(c.value);
+            uniqueChoices.push(c);
+          }
+        }
+
+        const searchVal = (focusedOption.value || '').toLowerCase();
+        let filtered = uniqueChoices
+          .filter(choice =>
+            choice.name.toLowerCase().includes(searchVal) ||
+            choice.value.toLowerCase().includes(searchVal)
+          )
+          .slice(0, 25);
+
+        // Fallback to top choices if filter yields 0 so the dialogue box is NEVER empty!
+        if (filtered.length === 0) {
+          filtered = uniqueChoices.slice(0, 25);
+        }
+
+        return await interaction.respond(filtered);
+      }
+    } catch (err) {
+      console.error('[UOI Bot] Autocomplete interaction error:', err);
+      try {
+        if (!interaction.responded) {
+          await interaction.respond([
+            { name: 'COMMUNITY MEMBER', value: 'COMMUNITY MEMBER' }
+          ]);
+        }
+      } catch (_) {}
     }
   }
 };`;

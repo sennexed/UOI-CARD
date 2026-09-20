@@ -348,6 +348,7 @@ export function DiscordBotCommandHub({
         main: 'index.js',
         scripts: {
           start: 'node index.js',
+          deploy: 'node deploy-commands.js',
         },
         dependencies: {
           '@napi-rs/canvas': '^0.1.66',
@@ -391,22 +392,53 @@ const client = new Client({
 client.once('ready', async () => {
   console.log(\`✅ Logged in as \${client.user.tag}\`);
 
-  // Register /card slash command
+  // Register /card slash command with Discord API
   const rest = new REST({ version: '10' }).setToken(token);
   try {
     console.log('Registering slash commands with Discord API...');
+
+    // 1. INSTANT GUILD SYNC (0-second delay for all connected servers)
+    const connectedGuilds = Array.from(client.guilds.cache.values());
+    console.log(\`⚡ Deploying instant slash commands to \${connectedGuilds.length} connected server(s)...\`);
+    for (const guild of connectedGuilds) {
+      try {
+        await rest.put(
+          Routes.applicationGuildCommands(client.user.id, guild.id),
+          { body: [cardCommand.data.toJSON()] },
+        );
+        console.log(\`   ✅ Instant slash commands deployed for: \${guild.name} (\${guild.id})\`);
+      } catch (gErr) {
+        console.warn(\`   ⚠️ Could not deploy to server \${guild.name}: \${gErr.message}\`);
+      }
+    }
+
+    // 2. Global deployment for long-term consistency
     await rest.put(
       Routes.applicationCommands(client.user.id),
       { body: [cardCommand.data.toJSON()] },
     );
-    console.log('✅ Registered /card slash command successfully.');
+    console.log('✅ Registered global /card slash command successfully.');
   } catch (error) {
     console.error('❌ Error registering slash commands:', error.message);
   }
 });
 
+// Auto-register instant guild slash command whenever bot is added to a new server
+client.on('guildCreate', async (guild) => {
+  try {
+    const rest = new REST({ version: '10' }).setToken(token);
+    await rest.put(
+      Routes.applicationGuildCommands(client.user.id, guild.id),
+      { body: [cardCommand.data.toJSON()] },
+    );
+    console.log(\`⚡ Instant slash commands deployed to newly joined server: \${guild.name} (\${guild.id})\`);
+  } catch (err) {
+    console.error(\`Failed to deploy commands to \${guild.name}:\`, err.message);
+  }
+});
+
 client.on('interactionCreate', async (interaction) => {
-  // Autocomplete interaction: dynamically filters ranks to only roles this citizen has
+  // Autocomplete interaction: dynamically filters ranks to only roles this citizen has & shows gender choices
   if (interaction.isAutocomplete()) {
     if (interaction.commandName === 'card' && cardCommand.autocomplete) {
       try {
@@ -440,10 +472,52 @@ client.login(token).catch((err) => {
 `;
       zip.file('index.js', indexJsContent);
 
-      // 4. .env.example
+      // 4. deploy-commands.js utility for instant command synchronization
+      const deployCommandsJs = `require('dotenv').config();
+const { REST, Routes } = require('discord.js');
+const cardCommand = require('./commands/card.js');
+
+const token = (process.env.DISCORD_TOKEN || '').trim();
+const guildId = (process.env.DISCORD_GUILD_ID || '').trim();
+
+if (!token) {
+  console.error('❌ DISCORD_TOKEN is missing in .env!');
+  process.exit(1);
+}
+
+const rest = new REST({ version: '10' }).setToken(token);
+
+(async () => {
+  try {
+    console.log('🔄 Deploying /card slash command schema to Discord...');
+    const currentUser = await rest.get(Routes.user());
+    
+    if (guildId) {
+      console.log(\`🎯 Deploying INSTANT Guild Commands to server ID: \${guildId}\`);
+      await rest.put(
+        Routes.applicationGuildCommands(currentUser.id, guildId),
+        { body: [cardCommand.data.toJSON()] },
+      );
+      console.log('✅ Successfully deployed Instant Guild Slash Commands! (0s delay in Discord)');
+    } else {
+      console.log('🌐 Deploying globally. (Tip: Set DISCORD_GUILD_ID in .env for instant 0s guild updates!)');
+      await rest.put(
+        Routes.applicationCommands(currentUser.id),
+        { body: [cardCommand.data.toJSON()] },
+      );
+      console.log('✅ Successfully registered global slash commands.');
+    }
+  } catch (error) {
+    console.error('❌ Command deployment failed:', error);
+  }
+})();
+`;
+      zip.file('deploy-commands.js', deployCommandsJs);
+
+      // 5. .env.example
       zip.file(
         '.env.example',
-        '# Discord Bot Token from Discord Developer Portal\nDISCORD_TOKEN=your_bot_token_here\n\n# Optional: Direct URL to official permanent template image (if not uploading template.png directly)\nTEMPLATE_URL=\n'
+        '# Discord Bot Token from Discord Developer Portal -> Bot tab\nDISCORD_TOKEN=your_bot_token_here\n\n# Optional: Your Discord Server (Guild) ID for 0-second instant slash command & choice updates\nDISCORD_GUILD_ID=\n\n# Optional: Direct URL to official permanent template image (if not uploading template.png directly)\nTEMPLATE_URL=\n'
       );
 
       // 5. .gitignore for GitHub repository
@@ -1547,6 +1621,16 @@ DISCORD_TOKEN=your_bot_token_from_discord_developer_portal
                       <strong className="text-amber-300">4. Disallowed Intents / Privileged intent provided is not allowed</strong>
                       <p className="text-slate-400 mt-0.5">
                         • Go to <a href="https://discord.com/developers/applications" target="_blank" rel="noreferrer" className="text-indigo-400 hover:underline">discord.com/developers/applications</a> &gt; Click your Bot &gt; <strong>Bot</strong> tab &gt; Scroll down to <strong>Privileged Gateway Intents</strong> &gt; Check <strong>Server Members Intent</strong> &gt; Save changes.
+                      </p>
+                    </div>
+
+                    <div className="bg-slate-950/80 p-2 rounded border border-slate-800">
+                      <strong className="text-amber-300">5. Dialogue box / dropdown doesn't appear for Gender &amp; Role in Discord?</strong>
+                      <p className="text-slate-400 mt-0.5 leading-relaxed">
+                        • <strong>Discord Client Cache</strong>: Discord desktop and mobile apps cache slash command options locally. Press <strong className="text-white">Ctrl + R</strong> on desktop (or restart the Discord app on mobile) to refresh the command cache so the dropdown choices and role autocomplete appear.
+                        <br />• <strong>Instant 0s Server Deployment</strong>: In the updated code, the bot automatically deploys instant Guild Commands upon startup so you don't have to wait 1 hour for Discord's global cache. You can also run <code className="text-emerald-400">node deploy-commands.js</code> anytime.
+                        <br />• <strong>Interactive Dialogue Box Fallback</strong>: If you run <code className="text-emerald-400">/card generate citizen:@user roblox:Name fullname:Name</code> without typing gender or rank, the bot immediately posts an interactive message with Dropdown Dialogue Menus (Select Menus) right in the Discord channel!
+                        <br />• <strong>Server Members Intent</strong>: Make sure <strong className="text-white">Server Members Intent</strong> is turned ON so the bot has permission to view the citizen's actual server roles.
                       </p>
                     </div>
                   </div>
