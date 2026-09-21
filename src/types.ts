@@ -128,3 +128,42 @@ export interface CardRecord {
   history: CardAuditEntry[];
 }
 
+export interface GuildSetupConfig {
+  isSetup: boolean;
+  staffChannelId: string;
+  staffChannelName?: string;
+  deliveryChannelId?: string | null;
+  deliveryChannelName?: string | null;
+  staffRoleId?: string | null;
+  staffRoleName?: string | null;
+  autoNickname: boolean;
+  setupAt: string;
+  setupBy?: CardAuditActor;
+}
+
+export interface CardRequestRecord {
+  id: string;
+  guildId?: string;
+  targetUser: {
+    discordId: string;
+    discordTag: string;
+  };
+  applicantUser: {
+    discordId: string;
+    discordTag: string;
+  };
+  fullName: string;
+  gender: string;
+  assignedRank: string;
+  robloxUsername: string;
+  robloxUserId: string;
+  robloxAvatarUrl?: string | null;
+  submittedAt: string;
+  status: 'PENDING' | 'APPROVED' | 'DECLINED';
+  declineReason?: string | null;
+  reviewedBy?: CardAuditActor | null;
+  reviewedAt?: string | null;
+  issuedSerialId?: string | null;
+}
+
+

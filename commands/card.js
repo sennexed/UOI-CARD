@@ -1,4 +1,16 @@
-import { SlashCommandBuilder, EmbedBuilder, AttachmentBuilder, PermissionFlagsBits } from 'discord.js';
+import {
+  SlashCommandBuilder,
+  EmbedBuilder,
+  AttachmentBuilder,
+  PermissionFlagsBits,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+  ModalBuilder,
+  TextInputBuilder,
+  TextInputStyle,
+  ChannelType,
+} from 'discord.js';
 import { createCanvas, loadImage } from '@napi-rs/canvas';
 import fs from 'fs';
 import path from 'path';
@@ -27,12 +39,14 @@ function loadDatabase() {
       const parsed = JSON.parse(raw);
       if (!parsed.cards) parsed.cards = {};
       if (!parsed.serToUser) parsed.serToUser = {};
+      if (!parsed.guilds) parsed.guilds = {};
+      if (!parsed.pendingRequests) parsed.pendingRequests = {};
       return parsed;
     }
   } catch (err) {
     console.error('[UOI Bot] Error reading database:', err.message);
   }
-  return { cards: {}, serToUser: {} };
+  return { cards: {}, serToUser: {}, guilds: {}, pendingRequests: {} };
 }
 
 function saveDatabase(db) {
@@ -311,14 +325,43 @@ export const cardCommand = {
   data: new SlashCommandBuilder()
     .setName('card')
     .setDescription('Official UOI Identification System')
-    // 1. /card generate (1 card per person)
+    // 0. /card setup (Required initial configuration)
+    .addSubcommand((sub) =>
+      sub
+        .setName('setup')
+        .setDescription('Configure UOI ID Card routing and review channels for this server (Admins Only)')
+        .addChannelOption((opt) =>
+          opt
+            .setName('staff_channel')
+            .setDescription('Staff channel where citizen card applications and approval requests are sent')
+            .addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement)
+            .setRequired(true)
+        )
+        .addChannelOption((opt) =>
+          opt
+            .setName('delivery_channel')
+            .setDescription('Channel where approved cards will be announced (Optional)')
+            .addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement)
+            .setRequired(false)
+        )
+        .addRoleOption((opt) =>
+          opt
+            .setName('staff_role')
+            .setDescription('Officer or staff role permitted to approve or decline cards (Optional)')
+            .setRequired(false)
+        )
+        .addBooleanOption((opt) =>
+          opt
+            .setName('auto_nickname')
+            .setDescription('Automatically update member nickname to "Name [Serial]" upon approval (Default: True)')
+            .setRequired(false)
+        )
+    )
+    // 1. /card generate (Routes to staff review)
     .addSubcommand((sub) =>
       sub
         .setName('generate')
-        .setDescription('Issue an official UOI identification card (1 card per citizen)')
-        .addUserOption((opt) =>
-          opt.setName('citizen').setDescription('Discord member to receive the card').setRequired(true)
-        )
+        .setDescription('Submit application for official UOI ID card (Routes to Staff Review Queue)')
         .addStringOption((opt) =>
           opt.setName('roblox').setDescription('Roblox Username or numerical ID').setRequired(true)
         )
@@ -326,10 +369,13 @@ export const cardCommand = {
           opt.setName('fullname').setDescription('Full Citizen Name').setRequired(true)
         )
         .addStringOption((opt) =>
-          opt.setName('gender').setDescription('Gender').setRequired(true)
+          opt.setName('gender').setDescription('Gender (Male / Female / Other)').setRequired(true)
         )
         .addStringOption((opt) =>
           opt.setName('rank').setDescription('Rank / Role (e.g. PRESIDENT, PRIME MINISTER, COMMUNITY MEMBER)')
+        )
+        .addUserOption((opt) =>
+          opt.setName('citizen').setDescription('Target member (leave empty to apply for yourself)')
         )
     )
     // 2. /card show (NEW: Pulls card of user from database)
@@ -413,6 +459,119 @@ export const cardCommand = {
       discordId: interaction.user.id,
       discordTag: interaction.user.tag,
     };
+
+    // ==========================================
+    // COMMAND: /card setup (Required initial setup)
+    // ==========================================
+    if (sub === 'setup') {
+      await interaction.deferReply({ ephemeral: false });
+
+      // Check permission: ManageGuild or Administrator
+      if (
+        interaction.member &&
+        !interaction.member.permissions.has(PermissionFlagsBits.ManageGuild) &&
+        !interaction.member.permissions.has(PermissionFlagsBits.Administrator)
+      ) {
+        return interaction.editReply({
+          content: '❌ **Permission Denied:** Only server administrators or members with `Manage Server` can configure the UOI Card System.',
+        });
+      }
+
+      const staffChannel = interaction.options.getChannel('staff_channel');
+      const deliveryChannel = interaction.options.getChannel('delivery_channel');
+      const staffRole = interaction.options.getRole('staff_role');
+      const autoNickname = interaction.options.getBoolean('auto_nickname') ?? true;
+
+      const db = loadDatabase();
+      db.guilds = db.guilds || {};
+      db.guilds[guildId] = {
+        isSetup: true,
+        staffChannelId: staffChannel.id,
+        staffChannelName: staffChannel.name,
+        deliveryChannelId: deliveryChannel ? deliveryChannel.id : null,
+        deliveryChannelName: deliveryChannel ? deliveryChannel.name : null,
+        staffRoleId: staffRole ? staffRole.id : null,
+        staffRoleName: staffRole ? staffRole.name : null,
+        autoNickname,
+        setupAt: new Date().toISOString(),
+        setupBy: {
+          discordId: interaction.user.id,
+          discordTag: interaction.user.tag,
+        },
+      };
+      saveDatabase(db);
+
+      const embed = new EmbedBuilder()
+        .setTitle('⚙️ UOI ID Card System Setup Complete!')
+        .setColor(0x10b981)
+        .setDescription(
+          `**The Union of Indians ID Card System is now fully configured and ACTIVE on ${interaction.guild?.name || 'this server'}!**\n\n` +
+          `All citizen card commands are now **unlocked** and ready for use.`
+        )
+        .addFields(
+          {
+            name: '📥 Staff Review Channel',
+            value: `<#${staffChannel.id}> (\`${staffChannel.name}\`)\n*Incoming \`/card generate\` requests will be posted here with interactive Accept & Decline controls.*`,
+            inline: false,
+          },
+          {
+            name: '📬 Card Delivery Channel',
+            value: deliveryChannel ? `<#${deliveryChannel.id}> (\`${deliveryChannel.name}\`)` : '*(Default: Posts in applicant\'s current channel)*',
+            inline: true,
+          },
+          {
+            name: '🛡️ Authorized Reviewers',
+            value: staffRole ? `<@&${staffRole.id}>` : '*Server Administrators & Officers*',
+            inline: true,
+          },
+          {
+            name: '🏷️ Auto-Nicknaming',
+            value: autoNickname ? '✅ Enabled (`Name [Serial]`)' : '❌ Disabled',
+            inline: true,
+          },
+          {
+            name: '📋 What happens next?',
+            value:
+              `1. Citizens can run \`/card generate\` to apply for their card.\n` +
+              `2. Applications go directly to <#${staffChannel.id}> for staff review.\n` +
+              `3. Staff can click **[✅ Accept & Issue Card]** or **[❌ Decline with Reason]**.\n` +
+              `4. You can customize the official card background anytime using \`/card set-template\`!`,
+          }
+        )
+        .setFooter({ text: 'Union of Indians Official Bot Registry' })
+        .setTimestamp();
+
+      return interaction.editReply({ embeds: [embed] });
+    }
+
+    // ==========================================
+    // SERVER SETUP GUARD: If not setup, lock all other commands!
+    // ==========================================
+    const db = loadDatabase();
+    const guildConfig = db.guilds?.[guildId];
+    if (!guildConfig || !guildConfig.isSetup || !guildConfig.staffChannelId) {
+      const embed = new EmbedBuilder()
+        .setTitle('🔒 UOI Identification System: Server Setup Required')
+        .setColor(0xef4444)
+        .setDescription(
+          `**This server has not completed UOI Bot setup yet!**\n\n` +
+          `All citizen card generation, inspection, verification, and registry commands remain **locked and inactive** until an Administrator configures the server routing.`
+        )
+        .addFields(
+          {
+            name: '🛠️ How to Unlock Commands?',
+            value: 'A server Administrator must run `/card setup` and specify the **staff_channel** where citizen card applications and approval requests will be delivered.',
+          },
+          {
+            name: '👑 Required Permissions',
+            value: '`Administrator` or `Manage Server`',
+          }
+        )
+        .setFooter({ text: 'Union of Indians Registry • Configuration Lock' })
+        .setTimestamp();
+
+      return interaction.reply({ embeds: [embed], ephemeral: true });
+    }
 
     // ==========================================
     // COMMAND: /card set-template (1 template per server)
@@ -630,19 +789,18 @@ export const cardCommand = {
     }
 
     // ==========================================
-    // COMMAND 1: /card generate (1 card per person)
+    // COMMAND 1: /card generate (Routes to staff review)
     // ==========================================
     if (sub === 'generate') {
-      await interaction.deferReply();
+      await interaction.deferReply({ ephemeral: false });
 
-      const targetMember = interaction.options.getMember('citizen');
-      const targetUser = interaction.options.getUser('citizen');
+      const targetUser = interaction.options.getUser('citizen') || interaction.user;
       const robloxQuery = interaction.options.getString('roblox');
       const fullName = interaction.options.getString('fullname');
       const gender = interaction.options.getString('gender');
       const assignedRank = (interaction.options.getString('rank') || 'COMMUNITY MEMBER').toUpperCase();
 
-      // STRICT RULE: Only one card generate per person!
+      // STRICT RULE 1: Only 1 card per person!
       const db = loadDatabase();
       const existingCard = db.cards[targetUser.id];
       if (existingCard && existingCard.status === 'ACTIVE') {
@@ -677,110 +835,169 @@ export const cardCommand = {
         return interaction.editReply({ embeds: [embed] });
       }
 
-      const serialId = `UOI-${new Date().getFullYear()}-${Math.floor(100000 + Math.random() * 900000)}`;
-      const serverNickname = `${fullName} [${serialId}]`;
+      // Check if citizen already has a pending request awaiting review
+      const existingPending = Object.values(db.pendingRequests || {}).find(
+        (r) => r.status === 'PENDING' && r.targetUser?.id === targetUser.id
+      );
+      if (existingPending) {
+        const embed = new EmbedBuilder()
+          .setTitle('⏳ Card Request Already Pending Review')
+          .setColor(0xf59e0b)
+          .setDescription(
+            `**<@${targetUser.id}> already has an active card request awaiting staff review!**\n` +
+            `Please wait for staff to review the current application in <#${guildConfig.staffChannelId}>.`
+          )
+          .addFields(
+            { name: 'Request ID', value: `\`${existingPending.id}\``, inline: true },
+            {
+              name: 'Submitted At',
+              value: `<t:${Math.floor(new Date(existingPending.submittedAt).getTime() / 1000)}:R>`,
+              inline: true,
+            },
+            { name: 'Status', value: '🟡 Awaiting Officer Approval', inline: true }
+          )
+          .setFooter({ text: 'Union of Indians Staff Review Queue' })
+          .setTimestamp();
+        return interaction.editReply({ embeds: [embed] });
+      }
 
       // Fetch Roblox details & avatar
       const robloxInfo = await fetchRobloxUserData(robloxQuery);
 
-      // Update nickname if bot has permissions
-      try {
-        if (targetMember && targetMember.manageable) {
-          await targetMember.setNickname(serverNickname);
-        }
-      } catch (err) {
-        console.warn('[UOI Bot] Nickname update failed (role hierarchy):', err?.message);
-      }
+      const requestId = `REQ-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
 
-      // Render Card Image with server's template
-      let cardBuffer = null;
-      let usedTemplate = false;
-      let templateSource = null;
-      try {
-        const renderResult = await renderCardImage({
-          guildId,
-          fullName,
-          robloxUsername: robloxInfo.username,
-          robloxUserId: robloxInfo.userId,
-          gender,
-          assignedRank,
-          serialId,
-          avatarUrl: robloxInfo.avatarUrl,
-        });
-        cardBuffer = renderResult.buffer;
-        usedTemplate = renderResult.usedTemplate;
-        templateSource = renderResult.source;
-      } catch (err) {
-        console.error('[UOI Bot] Card image rendering failed:', err);
-      }
-
-      // SAVE TO PERSISTENT DATABASE (1 card per person record)
-      const newCardRecord = {
-        discordId: targetUser.id,
-        discordTag: targetUser.tag,
-        guildId: guildId || null,
-        serialId,
+      // Save pending request to database
+      db.pendingRequests = db.pendingRequests || {};
+      const requestRecord = {
+        id: requestId,
+        guildId,
+        targetUser: {
+          id: targetUser.id,
+          tag: targetUser.tag,
+        },
+        applicantUser: {
+          id: interaction.user.id,
+          tag: interaction.user.tag,
+        },
         fullName,
-        robloxUsername: robloxInfo.username,
-        robloxUserId: robloxInfo.userId,
         gender,
         assignedRank,
-        avatarUrl: robloxInfo.avatarUrl,
-        issuedBy: {
-          discordId: issuingOfficer.discordId,
-          discordTag: issuingOfficer.discordTag,
-        },
-        issuedAt: new Date().toISOString(),
-        serverNickname,
-        status: 'ACTIVE',
+        robloxUsername: robloxInfo.username,
+        robloxUserId: robloxInfo.userId,
+        robloxAvatarUrl: robloxInfo.avatarUrl,
+        submittedAt: new Date().toISOString(),
+        status: 'PENDING',
+        declineReason: null,
+        reviewedBy: null,
+        reviewedAt: null,
+        issuedSerialId: null,
+        staffChannelId: null,
+        staffMessageId: null,
       };
-      db.cards[targetUser.id] = newCardRecord;
-      db.serToUser = db.serToUser || {};
-      db.serToUser[serialId] = targetUser.id;
+      db.pendingRequests[requestId] = requestRecord;
       saveDatabase(db);
 
-      const fileName = `${serialId}.png`;
-      const files = [];
+      // Post interactive review card into the Staff Channel
+      let postedToStaff = false;
+      try {
+        const staffChannel = await interaction.guild.channels.fetch(guildConfig.staffChannelId);
+        if (staffChannel && staffChannel.isTextBased()) {
+          const staffEmbed = new EmbedBuilder()
+            .setTitle(`🛡️ New Citizen Card Application: ${fullName}`)
+            .setColor(0xf59e0b)
+            .setDescription(
+              `A citizen identification card application has been submitted and is awaiting staff approval.\n\n` +
+              `• **Citizen:** <@${targetUser.id}> (\`${targetUser.tag}\`)\n` +
+              `• **Submitted By:** <@${interaction.user.id}> (\`${interaction.user.tag}\`)`
+            )
+            .addFields(
+              { name: 'Full Citizen Name', value: fullName, inline: true },
+              { name: 'Gender', value: gender, inline: true },
+              { name: 'Requested Rank', value: `**${assignedRank}**`, inline: true },
+              {
+                name: 'Roblox Identity',
+                value: robloxInfo.userId
+                  ? `[@${robloxInfo.username}](https://www.roblox.com/users/${robloxInfo.userId}/profile) (\`ID: ${robloxInfo.userId}\`)`
+                  : `@${robloxInfo.username}`,
+                inline: true,
+              },
+              { name: 'Request ID', value: `\`${requestId}\``, inline: true },
+              { name: 'Submitted At', value: `<t:${Math.floor(Date.now() / 1000)}:R>`, inline: true }
+            )
+            .setFooter({ text: `UOI Staff Review Queue • Request ${requestId}` })
+            .setTimestamp();
 
-      const embed = new EmbedBuilder()
-        .setTitle('🛡️ UOI Citizen ID Card Issued')
-        .setColor(usedTemplate ? 0x10b981 : 0xf59e0b)
-        .setDescription(`Official identity credential issued to <@${targetUser.id}>`)
+          if (robloxInfo.avatarUrl) {
+            staffEmbed.setThumbnail(robloxInfo.avatarUrl);
+          }
+
+          const actionRow = new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+              .setCustomId(`card_accept_${requestId}`)
+              .setLabel('Accept & Issue Card')
+              .setStyle(ButtonStyle.Success)
+              .setEmoji('✅'),
+            new ButtonBuilder()
+              .setCustomId(`card_decline_${requestId}`)
+              .setLabel('Decline with Reason')
+              .setStyle(ButtonStyle.Danger)
+              .setEmoji('❌')
+          );
+
+          const sentMsg = await staffChannel.send({ embeds: [staffEmbed], components: [actionRow] });
+          requestRecord.staffChannelId = staffChannel.id;
+          requestRecord.staffMessageId = sentMsg.id;
+          saveDatabase(db);
+          postedToStaff = true;
+        }
+      } catch (staffErr) {
+        console.error('[UOI Bot] Could not post to staff review channel:', staffErr.message);
+      }
+
+      // Inform the user that the request has been routed to staff
+      const applicantEmbed = new EmbedBuilder()
+        .setTitle('📋 Application Submitted for Staff Review')
+        .setColor(0x38bdf8)
+        .setDescription(
+          `**Your UOI Citizen Card application has been dispatched to Staff!**\n\n` +
+          `Under Union procedure, ID cards are not issued instantly. Your application has been routed to the staff review channel for officer verification.`
+        )
         .addFields(
-          { name: 'Card Serial ID', value: `\`${serialId}\``, inline: true },
-          { name: 'Citizen', value: `<@${targetUser.id}>`, inline: true },
+          { name: 'Request ID', value: `\`${requestId}\``, inline: true },
+          { name: 'Target Citizen', value: `<@${targetUser.id}>`, inline: true },
+          { name: 'Full Name', value: fullName, inline: true },
           {
             name: 'Roblox Identity',
             value: robloxInfo.userId
               ? `[@${robloxInfo.username}](https://www.roblox.com/users/${robloxInfo.userId}/profile)`
-              : robloxQuery,
+              : `@${robloxInfo.username}`,
             inline: true,
           },
-          { name: 'Rank Tier', value: `**${assignedRank}**`, inline: true },
-          { name: 'Issuing Officer', value: `<@${issuingOfficer.discordId}>`, inline: true },
-          { name: 'Server Nickname', value: `\`${serverNickname}\``, inline: true }
+          { name: 'Requested Rank', value: `**${assignedRank}**`, inline: true },
+          {
+            name: 'Staff Review Channel',
+            value: `<#${guildConfig.staffChannelId}>`,
+            inline: true,
+          },
+          {
+            name: '⏱️ What happens next?',
+            value:
+              '• Union officers will inspect your Roblox account and information in staff chat.\n' +
+              '• When **Accepted**, your official card is rendered, delivered, and your nickname updated.\n' +
+              '• If **Declined**, staff will provide a specific reason and you will receive a notification.',
+          }
         )
-        .setFooter({
-          text: usedTemplate
-            ? `Saved in Database • Stamped with ${templateSource}`
-            : '⚠️ Generic template used. Run /card set-template to upload your server\'s official template!',
-        })
+        .setFooter({ text: 'Union of Indians Central Registry • Verification Queue' })
         .setTimestamp();
 
-      if (!usedTemplate) {
-        embed.addFields({
-          name: '⚠️ Template Notice',
-          value: 'This server has not uploaded its official template yet. Run `/card set-template` with your template image attached!',
+      if (!postedToStaff) {
+        applicantEmbed.addFields({
+          name: '⚠️ Notice',
+          value: 'Could not directly post to configured staff channel. Staff may review this via `/card requests` or bot dashboard.',
         });
       }
 
-      if (cardBuffer) {
-        const attachment = new AttachmentBuilder(cardBuffer, { name: fileName });
-        files.push(attachment);
-        embed.setImage(`attachment://${fileName}`);
-      }
-
-      return interaction.editReply({ embeds: [embed], files });
+      return interaction.editReply({ embeds: [applicantEmbed] });
     }
 
     // ==========================================
@@ -917,6 +1134,348 @@ export const cardCommand = {
       return interaction.reply({ embeds: [embed] });
     }
   },
+
+  // ==========================================
+  // INTERACTION HANDLERS: Staff Review Buttons
+  // ==========================================
+  async handleButton(interaction) {
+    const customId = interaction.customId;
+    const guildId = interaction.guildId;
+    const db = loadDatabase();
+    const guildConfig = db.guilds?.[guildId];
+
+    // Staff permission check
+    if (guildConfig?.staffRoleId) {
+      const hasStaffRole = interaction.member?.roles?.cache?.has(guildConfig.staffRoleId);
+      const isAdmin =
+        interaction.member?.permissions?.has(PermissionFlagsBits.Administrator) ||
+        interaction.member?.permissions?.has(PermissionFlagsBits.ManageGuild);
+      if (!hasStaffRole && !isAdmin) {
+        return interaction.reply({
+          content: `❌ **Permission Denied:** You need the <@&${guildConfig.staffRoleId}> role to review citizen card applications.`,
+          ephemeral: true,
+        });
+      }
+    } else {
+      const isAdmin =
+        interaction.member?.permissions?.has(PermissionFlagsBits.Administrator) ||
+        interaction.member?.permissions?.has(PermissionFlagsBits.ManageGuild);
+      if (!isAdmin) {
+        return interaction.reply({
+          content: '❌ **Permission Denied:** Only administrators or members with `Manage Server` can review citizen card applications.',
+          ephemeral: true,
+        });
+      }
+    }
+
+    // 1. ACCEPT & ISSUE CARD
+    if (customId.startsWith('card_accept_')) {
+      const requestId = customId.replace('card_accept_', '');
+      const req = db.pendingRequests?.[requestId];
+
+      if (!req) {
+        return interaction.reply({
+          content: `❌ Card application record \`${requestId}\` not found in the database.`,
+          ephemeral: true,
+        });
+      }
+
+      if (req.status !== 'PENDING') {
+        return interaction.reply({
+          content: `⚠️ This card application has already been marked as **${req.status}** by <@${req.reviewedBy?.discordId || 'Staff'}>.`,
+          ephemeral: true,
+        });
+      }
+
+      await interaction.deferReply({ ephemeral: true });
+
+      // Generate Serial ID & Server Nickname
+      const serialId = `UOI-${new Date().getFullYear()}-${Math.floor(100000 + Math.random() * 900000)}`;
+      const serverNickname = `${req.fullName} [${serialId}]`;
+
+      // Render Card Image with server's active template
+      let cardBuffer = null;
+      let usedTemplate = false;
+      let templateSource = null;
+      try {
+        const renderResult = await renderCardImage({
+          guildId,
+          fullName: req.fullName,
+          robloxUsername: req.robloxUsername,
+          robloxUserId: req.robloxUserId,
+          gender: req.gender,
+          assignedRank: req.assignedRank,
+          serialId,
+          avatarUrl: req.robloxAvatarUrl,
+        });
+        cardBuffer = renderResult.buffer;
+        usedTemplate = renderResult.usedTemplate;
+        templateSource = renderResult.source;
+      } catch (err) {
+        console.error('[UOI Bot] Error rendering approved card image:', err);
+      }
+
+      // Save to active card database
+      const newCardRecord = {
+        discordId: req.targetUser.id,
+        discordTag: req.targetUser.tag,
+        guildId: guildId || null,
+        serialId,
+        fullName: req.fullName,
+        robloxUsername: req.robloxUsername,
+        robloxUserId: req.robloxUserId,
+        gender: req.gender,
+        assignedRank: req.assignedRank,
+        avatarUrl: req.robloxAvatarUrl,
+        issuedBy: {
+          discordId: interaction.user.id,
+          discordTag: interaction.user.tag,
+        },
+        issuedAt: new Date().toISOString(),
+        serverNickname,
+        status: 'ACTIVE',
+      };
+      db.cards[req.targetUser.id] = newCardRecord;
+      db.serToUser = db.serToUser || {};
+      db.serToUser[serialId] = req.targetUser.id;
+
+      // Update pending request status
+      req.status = 'APPROVED';
+      req.reviewedBy = { discordId: interaction.user.id, discordTag: interaction.user.tag };
+      req.reviewedAt = new Date().toISOString();
+      req.issuedSerialId = serialId;
+      saveDatabase(db);
+
+      // Edit staff message to show approved state
+      try {
+        const staffMsgEmbed = EmbedBuilder.from(interaction.message.embeds[0])
+          .setColor(0x10b981)
+          .setTitle(`✅ Citizen Card Approved & Issued: ${req.fullName}`)
+          .addFields(
+            { name: 'Decision', value: `✅ **APPROVED** by <@${interaction.user.id}>`, inline: true },
+            { name: 'Serial ID Issued', value: `\`${serialId}\``, inline: true }
+          );
+
+        const disabledRow = new ActionRowBuilder().addComponents(
+          new ButtonBuilder()
+            .setCustomId('card_done_btn')
+            .setLabel(`Approved by @${interaction.user.username}`)
+            .setStyle(ButtonStyle.Success)
+            .setDisabled(true)
+            .setEmoji('✅')
+        );
+
+        await interaction.message.edit({ embeds: [staffMsgEmbed], components: [disabledRow] });
+      } catch (staffEditErr) {
+        console.warn('[UOI Bot] Could not edit staff review message:', staffEditErr.message);
+      }
+
+      // Automatically update server nickname if enabled
+      if (guildConfig?.autoNickname !== false) {
+        try {
+          const member = await interaction.guild.members.fetch(req.targetUser.id);
+          if (member && member.manageable) {
+            await member.setNickname(serverNickname);
+          }
+        } catch (nickErr) {
+          console.warn('[UOI Bot] Nickname update failed:', nickErr.message);
+        }
+      }
+
+      // Deliver card to delivery channel or applicant
+      const fileName = `${serialId}.png`;
+      const files = [];
+      if (cardBuffer) {
+        files.push(new AttachmentBuilder(cardBuffer, { name: fileName }));
+      }
+
+      const deliveryEmbed = new EmbedBuilder()
+        .setTitle(`🛡️ Official UOI Citizen Card Issued: ${req.fullName}`)
+        .setColor(usedTemplate ? 0x10b981 : 0xf59e0b)
+        .setDescription(
+          `🎉 **Congratulations <@${req.targetUser.id}>! Your application has been approved by staff.**\n` +
+          `Your official Union of Indians identification credential is registered in the database.`
+        )
+        .addFields(
+          { name: 'Serial ID', value: `\`${serialId}\``, inline: true },
+          { name: 'Citizen Name', value: req.fullName, inline: true },
+          { name: 'Rank Tier', value: `**${req.assignedRank}**`, inline: true },
+          {
+            name: 'Roblox Account',
+            value: req.robloxUserId
+              ? `[@${req.robloxUsername}](https://www.roblox.com/users/${req.robloxUserId}/profile)`
+              : `@${req.robloxUsername}`,
+            inline: true,
+          },
+          { name: 'Approving Officer', value: `<@${interaction.user.id}>`, inline: true },
+          { name: 'Assigned Nickname', value: `\`${serverNickname}\``, inline: true }
+        )
+        .setFooter({
+          text: usedTemplate
+            ? `Central Registry Record • Stamped with ${templateSource}`
+            : 'Central Registry Record • Union of Indians',
+        })
+        .setTimestamp();
+
+      if (cardBuffer) {
+        deliveryEmbed.setImage(`attachment://${fileName}`);
+      }
+
+      // Dispatch to Delivery channel if configured
+      try {
+        let targetDeliveryChan = null;
+        if (guildConfig?.deliveryChannelId) {
+          targetDeliveryChan = await interaction.guild.channels.fetch(guildConfig.deliveryChannelId);
+        }
+        if (targetDeliveryChan && targetDeliveryChan.isTextBased()) {
+          await targetDeliveryChan.send({
+            content: `📢 Citizen Card Approved for <@${req.targetUser.id}>!`,
+            embeds: [deliveryEmbed],
+            files,
+          });
+        }
+      } catch (delChanErr) {
+        console.warn('[UOI Bot] Delivery channel dispatch error:', delChanErr.message);
+      }
+
+      return interaction.editReply({
+        content: `✅ **Card Successfully Issued!**\nSerial ID: \`${serialId}\` created for <@${req.targetUser.id}>. Server database and records have been updated.`,
+      });
+    }
+
+    // 2. DECLINE WITH REASON (Pops up modal)
+    if (customId.startsWith('card_decline_')) {
+      const requestId = customId.replace('card_decline_', '');
+      const req = db.pendingRequests?.[requestId];
+
+      if (!req) {
+        return interaction.reply({
+          content: `❌ Card application \`${requestId}\` not found in database.`,
+          ephemeral: true,
+        });
+      }
+
+      if (req.status !== 'PENDING') {
+        return interaction.reply({
+          content: `⚠️ This request has already been marked as **${req.status}** by <@${req.reviewedBy?.discordId || 'Staff'}>.`,
+          ephemeral: true,
+        });
+      }
+
+      // Pop up a modal asking the officer for the decline reason
+      const modal = new ModalBuilder()
+        .setCustomId(`card_modal_decline_${requestId}`)
+        .setTitle('Decline Citizen Card Application');
+
+      const reasonInput = new TextInputBuilder()
+        .setCustomId('decline_reason')
+        .setLabel('Reason for Rejection')
+        .setStyle(TextInputStyle.Paragraph)
+        .setPlaceholder('State why this application is rejected (e.g. Invalid Roblox account, incorrect rank, troll name)...')
+        .setRequired(true)
+        .setMinLength(5)
+        .setMaxLength(500);
+
+      modal.addComponents(new ActionRowBuilder().addComponents(reasonInput));
+      return interaction.showModal(modal);
+    }
+  },
+
+  // ==========================================
+  // MODAL SUBMIT HANDLER: Decline with Reason
+  // ==========================================
+  async handleModal(interaction) {
+    const customId = interaction.customId;
+    if (!customId.startsWith('card_modal_decline_')) return;
+
+    const requestId = customId.replace('card_modal_decline_', '');
+    const reason = interaction.fields.getTextInputValue('decline_reason');
+    const guildId = interaction.guildId;
+    const db = loadDatabase();
+    const guildConfig = db.guilds?.[guildId];
+    const req = db.pendingRequests?.[requestId];
+
+    if (!req) {
+      return interaction.reply({ content: `❌ Request \`${requestId}\` was not found.`, ephemeral: true });
+    }
+
+    if (req.status !== 'PENDING') {
+      return interaction.reply({ content: `⚠️ Request is already marked as ${req.status}.`, ephemeral: true });
+    }
+
+    await interaction.deferReply({ ephemeral: true });
+
+    req.status = 'DECLINED';
+    req.declineReason = reason;
+    req.reviewedBy = { discordId: interaction.user.id, discordTag: interaction.user.tag };
+    req.reviewedAt = new Date().toISOString();
+    saveDatabase(db);
+
+    // Update the message in the staff channel
+    if (req.staffChannelId && req.staffMessageId) {
+      try {
+        const staffChannel = await interaction.guild.channels.fetch(req.staffChannelId);
+        if (staffChannel && staffChannel.isTextBased()) {
+          const staffMsg = await staffChannel.messages.fetch(req.staffMessageId);
+          if (staffMsg) {
+            const updatedStaffEmbed = EmbedBuilder.from(staffMsg.embeds[0])
+              .setColor(0xef4444)
+              .setTitle(`❌ Citizen Card Application DECLINED: ${req.fullName}`)
+              .addFields(
+                { name: 'Decision', value: `❌ **DECLINED** by <@${interaction.user.id}>`, inline: true },
+                { name: 'Reason for Rejection', value: reason, inline: false }
+              );
+
+            const disabledRow = new ActionRowBuilder().addComponents(
+              new ButtonBuilder()
+                .setCustomId('card_declined_btn')
+                .setLabel(`Declined by @${interaction.user.username}`)
+                .setStyle(ButtonStyle.Danger)
+                .setDisabled(true)
+                .setEmoji('❌')
+            );
+
+            await staffMsg.edit({ embeds: [updatedStaffEmbed], components: [disabledRow] });
+          }
+        }
+      } catch (staffEditErr) {
+        console.warn('[UOI Bot] Error editing staff decline message:', staffEditErr.message);
+      }
+    }
+
+    // Send decline notice to delivery channel or notify citizen
+    try {
+      let targetDeliveryChan = null;
+      if (guildConfig?.deliveryChannelId) {
+        targetDeliveryChan = await interaction.guild.channels.fetch(guildConfig.deliveryChannelId);
+      }
+      if (targetDeliveryChan && targetDeliveryChan.isTextBased()) {
+        const declineNotificationEmbed = new EmbedBuilder()
+          .setTitle('🚨 UOI Citizen Card Application Declined')
+          .setColor(0xef4444)
+          .setDescription(`Application update for <@${req.targetUser.id}>`)
+          .addFields(
+            { name: 'Applicant', value: `<@${req.targetUser.id}>`, inline: true },
+            { name: 'Request ID', value: `\`${req.id}\``, inline: true },
+            { name: 'Reviewing Officer', value: `<@${interaction.user.id}>`, inline: true },
+            { name: 'Reason for Rejection', value: reason },
+            {
+              name: 'Next Steps',
+              value: 'The citizen may submit a corrected application using `/card generate` once the stated issue is resolved.',
+            }
+          )
+          .setFooter({ text: 'Union of Indians Staff Review System' })
+          .setTimestamp();
+
+        await targetDeliveryChan.send({ content: `<@${req.targetUser.id}>`, embeds: [declineNotificationEmbed] });
+      }
+    } catch (_) {}
+
+    return interaction.editReply({
+      content: `❌ **Card Application Declined.**\nRequest \`${requestId}\` marked as DECLINED with reason: "${reason}".`,
+    });
+  },
 };
 
+export { cardCommand };
 export default cardCommand;

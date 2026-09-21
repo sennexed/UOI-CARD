@@ -230,6 +230,81 @@ async function startServer() {
     }>;
   }
 
+  interface ServerGuildConfig {
+    isSetup: boolean;
+    staffChannelId: string;
+    staffChannelName: string;
+    deliveryChannelId: string | null;
+    deliveryChannelName: string | null;
+    staffRoleId: string | null;
+    staffRoleName: string | null;
+    autoNickname: boolean;
+    setupAt: string;
+    setupBy: { discordId: string; discordTag: string };
+  }
+
+  interface PendingCardRequest {
+    id: string;
+    targetUser: {
+      discordId: string;
+      discordTag: string;
+    };
+    applicantUser: {
+      discordId: string;
+      discordTag: string;
+    };
+    fullName: string;
+    gender: string;
+    assignedRank: string;
+    robloxUsername: string;
+    robloxUserId: string;
+    robloxAvatarUrl: string | null;
+    submittedAt: string;
+    status: 'PENDING' | 'APPROVED' | 'DECLINED';
+    declineReason?: string | null;
+    reviewedBy?: { discordId: string; discordTag: string } | null;
+    reviewedAt?: string | null;
+    issuedSerialId?: string | null;
+  }
+
+  let defaultGuildConfig: ServerGuildConfig = {
+    isSetup: true,
+    staffChannelId: '112233445566778899',
+    staffChannelName: 'officer-review',
+    deliveryChannelId: '223344556677889900',
+    deliveryChannelName: 'citizen-id-cards',
+    staffRoleId: '334455667788990011',
+    staffRoleName: 'Union Officer',
+    autoNickname: true,
+    setupAt: new Date(Date.now() - 86400000 * 10).toISOString(),
+    setupBy: { discordId: '998877665544332211', discordTag: 'ChiefJustice#1122' },
+  };
+
+  const cardRequests: Map<string, PendingCardRequest> = new Map([
+    [
+      'REQ-2026-8812',
+      {
+        id: 'REQ-2026-8812',
+        targetUser: {
+          discordId: '883322114455667788',
+          discordTag: 'CitizenAarav#0001',
+        },
+        applicantUser: {
+          discordId: '883322114455667788',
+          discordTag: 'CitizenAarav#0001',
+        },
+        fullName: 'Aarav Patel',
+        gender: 'Male',
+        assignedRank: 'COMMUNITY MEMBER',
+        robloxUsername: 'Aarav_RTP',
+        robloxUserId: '48291045',
+        robloxAvatarUrl: 'https://tr.rbxcdn.com/30DAY-AvatarHeadshot-B1E29F9CAE1E09441113EFB2E8513364-Png/420/420/AvatarHeadshot/Png/noFilter',
+        submittedAt: new Date(Date.now() - 3600000 * 2).toISOString(),
+        status: 'PENDING',
+      },
+    ],
+  ]);
+
   // Pre-seed card vault with official records
   const cardVault: Map<string, CardVaultRecord> = new Map([
     [
@@ -328,6 +403,231 @@ async function startServer() {
     ],
   ]);
 
+  // --- SETUP & CONFIGURATION ENDPOINTS ---
+  // GET /api/card/setup/status
+  app.get('/api/card/setup/status', (req, res) => {
+    res.json({ config: defaultGuildConfig });
+  });
+
+  // POST /api/card/setup - Configure server setup
+  app.post('/api/card/setup', (req, res) => {
+    const { staffChannelId, staffChannelName, deliveryChannelId, deliveryChannelName, staffRoleId, staffRoleName, autoNickname, setupBy } = req.body;
+    if (!staffChannelId && !staffChannelName) {
+      return res.status(400).json({ error: 'staff_channel is required for setup' });
+    }
+
+    defaultGuildConfig = {
+      isSetup: true,
+      staffChannelId: staffChannelId || '112233445566778899',
+      staffChannelName: staffChannelName || 'officer-review',
+      deliveryChannelId: deliveryChannelId || null,
+      deliveryChannelName: deliveryChannelName || null,
+      staffRoleId: staffRoleId || null,
+      staffRoleName: staffRoleName || null,
+      autoNickname: autoNickname ?? true,
+      setupAt: new Date().toISOString(),
+      setupBy: {
+        discordId: setupBy?.discordId || 'ADMIN',
+        discordTag: setupBy?.discordTag || 'Server Administrator',
+      },
+    };
+
+    return res.json({ success: true, message: 'Server setup completed successfully', config: defaultGuildConfig });
+  });
+
+  // POST /api/card/setup/reset - Reset setup (lock commands for demonstration)
+  app.post('/api/card/setup/reset', (req, res) => {
+    defaultGuildConfig.isSetup = false;
+    return res.json({ success: true, message: 'Server setup reset to UNCONFIGURED', config: defaultGuildConfig });
+  });
+
+  // --- CARD REQUEST QUEUE (STAFF APPROVAL WORKFLOW) ---
+  // GET /api/card/requests - List all requests
+  app.get('/api/card/requests', (req, res) => {
+    const list = Array.from(cardRequests.values()).reverse();
+    res.json({ total: list.length, requests: list, isServerSetup: defaultGuildConfig.isSetup });
+  });
+
+  // POST /api/card/request/submit - Citizen submits /card generate request (pending staff review)
+  app.post('/api/card/request/submit', (req, res) => {
+    if (!defaultGuildConfig.isSetup) {
+      return res.status(403).json({
+        error: 'SERVER_NOT_CONFIGURED',
+        message: 'This server has not completed setup yet. An administrator must run /card setup first.',
+      });
+    }
+
+    const { targetUser, applicantUser, fullName, gender, assignedRank, robloxUsername, robloxUserId, robloxAvatarUrl } = req.body;
+    if (!fullName || !assignedRank || !robloxUsername) {
+      return res.status(400).json({ error: 'Missing required card application details' });
+    }
+
+    const target = {
+      discordId: targetUser?.discordId?.trim() || '000000000000000000',
+      discordTag: targetUser?.discordTag?.trim() || `${robloxUsername}#0000`,
+    };
+
+    // 1. Strict 1 Card Per Person check in active vault
+    const existingActiveCard = Array.from(cardVault.values()).find(
+      (c) =>
+        c.status === 'ACTIVE' &&
+        ((target.discordId !== '000000000000000000' && c.issuedTo.discordId === target.discordId) ||
+          (robloxUserId && c.issuedTo.robloxUserId === robloxUserId) ||
+          (c.issuedTo.robloxUsername.toLowerCase() === robloxUsername.toLowerCase()))
+    );
+
+    if (existingActiveCard) {
+      return res.status(409).json({
+        error: `Citizen already has an active card (${existingActiveCard.serialId}). Policy allows only 1 card per citizen.`,
+        existingCard: existingActiveCard,
+      });
+    }
+
+    // 2. Check if already has a PENDING request
+    const existingPending = Array.from(cardRequests.values()).find(
+      (r) =>
+        r.status === 'PENDING' &&
+        ((target.discordId !== '000000000000000000' && r.targetUser.discordId === target.discordId) ||
+          (robloxUserId && r.robloxUserId === robloxUserId) ||
+          (r.robloxUsername.toLowerCase() === robloxUsername.toLowerCase()))
+    );
+
+    if (existingPending) {
+      return res.status(409).json({
+        error: 'PENDING_REQUEST_EXISTS',
+        message: `There is already a pending card application for this citizen in #${defaultGuildConfig.staffChannelName || 'staff-review'} (ID: ${existingPending.id}).`,
+        request: existingPending,
+      });
+    }
+
+    const requestId = `REQ-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
+    const newRequest: PendingCardRequest = {
+      id: requestId,
+      targetUser: target,
+      applicantUser: {
+        discordId: applicantUser?.discordId?.trim() || target.discordId,
+        discordTag: applicantUser?.discordTag?.trim() || target.discordTag,
+      },
+      fullName,
+      gender: gender || 'Other',
+      assignedRank: assignedRank.toUpperCase(),
+      robloxUsername,
+      robloxUserId: robloxUserId || '',
+      robloxAvatarUrl: robloxAvatarUrl || null,
+      submittedAt: new Date().toISOString(),
+      status: 'PENDING',
+    };
+
+    cardRequests.set(requestId, newRequest);
+    return res.status(201).json({
+      success: true,
+      message: 'Card application submitted successfully and dispatched to staff review channel.',
+      request: newRequest,
+      reviewChannel: defaultGuildConfig.staffChannelName,
+    });
+  });
+
+  // POST /api/card/request/accept - Staff accepts card application
+  app.post('/api/card/request/accept', (req, res) => {
+    const { requestId, reviewedBy } = req.body;
+    if (!requestId) {
+      return res.status(400).json({ error: 'requestId is required' });
+    }
+
+    const request = cardRequests.get(requestId);
+    if (!request) {
+      return res.status(404).json({ error: `Request ${requestId} not found` });
+    }
+
+    if (request.status !== 'PENDING') {
+      return res.status(400).json({ error: `Request is already ${request.status}` });
+    }
+
+    const reviewer = {
+      discordId: reviewedBy?.discordId || 'OFFICER-ADMIN',
+      discordTag: reviewedBy?.discordTag || 'Staff Reviewer',
+    };
+
+    const serialId = `UOI-${new Date().getFullYear()}-${Math.floor(100000 + Math.random() * 900000)}`;
+    const serverNickname = `${request.fullName} [${serialId}]`;
+
+    const newCard: CardVaultRecord = {
+      serialId,
+      status: 'ACTIVE',
+      issuedTo: {
+        discordId: request.targetUser.discordId,
+        discordTag: request.targetUser.discordTag,
+        robloxUsername: request.robloxUsername,
+        robloxUserId: request.robloxUserId,
+        fullName: request.fullName,
+        assignedRank: request.assignedRank,
+        gender: request.gender,
+      },
+      issuedBy: reviewer,
+      issuedAt: new Date().toISOString(),
+      serverNickname,
+      history: [
+        {
+          action: 'ISSUED',
+          performedBy: reviewer,
+          timestamp: new Date().toISOString(),
+          details: `Card application ${request.id} accepted and approved by ${reviewer.discordTag}`,
+        },
+      ],
+    };
+
+    cardVault.set(serialId, newCard);
+
+    request.status = 'APPROVED';
+    request.reviewedBy = reviewer;
+    request.reviewedAt = new Date().toISOString();
+    request.issuedSerialId = serialId;
+    cardRequests.set(requestId, request);
+
+    return res.json({
+      success: true,
+      message: `Card approved and issued for ${request.fullName} (${serialId})`,
+      card: newCard,
+      request,
+      deliveryChannel: defaultGuildConfig.deliveryChannelName,
+      serverNickname,
+    });
+  });
+
+  // POST /api/card/request/decline - Staff declines card application with reason
+  app.post('/api/card/request/decline', (req, res) => {
+    const { requestId, reason, reviewedBy } = req.body;
+    if (!requestId || !reason) {
+      return res.status(400).json({ error: 'requestId and reason are required' });
+    }
+
+    const request = cardRequests.get(requestId);
+    if (!request) {
+      return res.status(404).json({ error: `Request ${requestId} not found` });
+    }
+
+    if (request.status !== 'PENDING') {
+      return res.status(400).json({ error: `Request is already ${request.status}` });
+    }
+
+    const reviewer = {
+      discordId: reviewedBy?.discordId || 'OFFICER-ADMIN',
+      discordTag: reviewedBy?.discordTag || 'Staff Reviewer',
+    };
+
+    request.status = 'DECLINED';
+    request.declineReason = reason;
+    request.reviewedBy = reviewer;
+    request.reviewedAt = new Date().toISOString();
+    cardRequests.set(requestId, request);
+
+    return res.json({
+      success: true,
+      message: `Card request ${requestId} declined: ${reason}`,
+      request,
+    });
+  });
+
   // GET /api/card/vault - List all cards
   app.get('/api/card/vault', (req, res) => {
     const list = Array.from(cardVault.values()).reverse();
@@ -336,6 +636,13 @@ async function startServer() {
 
   // POST /api/card/issue - Command 1: /card generate (1 card per person enforcement)
   app.post('/api/card/issue', (req, res) => {
+    if (!defaultGuildConfig.isSetup) {
+      return res.status(403).json({
+        error: 'SERVER_NOT_CONFIGURED',
+        message: 'This server has not completed setup yet. An administrator must run /card setup first.',
+      });
+    }
+
     const { serialId, issuedTo, issuedBy } = req.body;
     if (!serialId || !issuedTo || !issuedTo.fullName || !issuedTo.assignedRank) {
       return res.status(400).json({ error: 'Incomplete card issue payload' });
