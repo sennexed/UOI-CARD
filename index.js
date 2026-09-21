@@ -1,20 +1,37 @@
 import 'dotenv/config';
 import { Client, GatewayIntentBits, REST, Routes } from 'discord.js';
 import http from 'http';
+import fs from 'fs';
+import path from 'path';
 import { cardCommand } from './commands/card.js';
 
-// 1. Lightweight HTTP Healthcheck server for Pterodactyl / WispByte container monitor
-const PORT = process.env.PORT || 3000;
+// 1. Lightweight HTTP Healthcheck & Status server for Pterodactyl / WispByte container monitor
+const PORT = 3000;
 const healthServer = http.createServer((req, res) => {
-  res.writeHead(200, { 'Content-Type': 'application/json' });
-  res.end(
-    JSON.stringify({
-      status: 'online',
-      service: 'Union of Indians (UOI) Discord Bot',
-      botReady: !!(globalThis.__uoiBotClient && globalThis.__uoiBotClient.isReady()),
-      uptimeSeconds: Math.floor(process.uptime()),
-    })
-  );
+  if (req.url === '/api/health' || req.url === '/health') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    return res.end(
+      JSON.stringify({
+        status: 'online',
+        service: 'Union of Indians (UOI) Discord Bot',
+        botReady: !!(globalThis.__uoiBotClient && globalThis.__uoiBotClient.isReady()),
+        uptimeSeconds: Math.floor(process.uptime()),
+      })
+    );
+  }
+
+  // Serve static HTML status dashboard
+  try {
+    const htmlPath = path.join(process.cwd(), 'index.html');
+    if (fs.existsSync(htmlPath)) {
+      const htmlContent = fs.readFileSync(htmlPath, 'utf8');
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      return res.end(htmlContent);
+    }
+  } catch (_) {}
+
+  res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
+  res.end('Union of Indians (UOI) Discord Bot is active.');
 });
 
 healthServer.on('error', (err) => {

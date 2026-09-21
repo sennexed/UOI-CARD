@@ -11,9 +11,19 @@ import {
   TextInputStyle,
   ChannelType,
 } from 'discord.js';
-import { createCanvas, loadImage } from '@napi-rs/canvas';
 import fs from 'fs';
 import path from 'path';
+
+// Optional / resilient native canvas loading (prevents bot crashes on budget host containers)
+let createCanvas = null;
+let loadImage = null;
+try {
+  const canvasPkg = await import('@napi-rs/canvas');
+  createCanvas = canvasPkg.createCanvas;
+  loadImage = canvasPkg.loadImage;
+} catch (canvasErr) {
+  console.log('[UOI Bot] Notice: @napi-rs/canvas native binary is not installed or loading; fallback embed mode active.');
+}
 
 // ========================================================
 // PERSISTENT DATABASE & TEMPLATE MANAGEMENT
@@ -192,6 +202,9 @@ async function renderCardImage({
   serialId,
   avatarUrl,
 }) {
+  if (!createCanvas || typeof createCanvas !== 'function') {
+    return { buffer: null, usedTemplate: false, source: 'canvas-library-disabled' };
+  }
   const canvas = createCanvas(1200, 900);
   const ctx = canvas.getContext('2d');
 
@@ -1477,5 +1490,4 @@ export const cardCommand = {
   },
 };
 
-export { cardCommand };
 export default cardCommand;

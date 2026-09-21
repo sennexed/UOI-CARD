@@ -4,15 +4,340 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>UOI ID Card Data Processor</title>
-    <meta name="description" content="Backend data processing module and Canvas scripting node for Union of Indians (UOI) Roblox RTP community ID cards." />
+    <meta name="description" content="Discord Bot for Union of Indians (UOI) Roblox RTP community card system with staff review workflow." />
     <meta property="og:title" content="UOI ID Card Data Processor" />
-    <meta property="og:description" content="Backend data processing module and Canvas scripting node for Union of Indians (UOI) Roblox RTP community ID cards." />
-    <meta property="og:type" content="website" />
-    <meta name="twitter:card" content="summary_large_image" />
+    <meta property="og:description" content="Discord Bot for Union of Indians (UOI) Roblox RTP community card system with staff review workflow." />
+    <style>
+      :root {
+        --bg-main: #090d16;
+        --bg-card: #0f172a;
+        --bg-subtle: #1e293b;
+        --border-color: #334155;
+        --text-main: #f8fafc;
+        --text-muted: #94a3b8;
+        --accent-blue: #38bdf8;
+        --accent-green: #10b981;
+        --accent-amber: #f59e0b;
+        --accent-purple: #818cf8;
+      }
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+      body {
+        background-color: var(--bg-main);
+        color: var(--text-main);
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        line-height: 1.6;
+        padding: 24px;
+      }
+      .container {
+        max-width: 900px;
+        margin: 0 auto;
+        display: flex;
+        flex-direction: column;
+        gap: 20px;
+      }
+      .header-card {
+        background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%);
+        border: 1px solid #3730a3;
+        border-radius: 12px;
+        padding: 24px;
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+      }
+      .header-title {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+      }
+      .bot-icon {
+        width: 48px;
+        height: 48px;
+        background: #312e81;
+        border: 1px solid #6366f1;
+        border-radius: 10px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 24px;
+      }
+      h1 {
+        font-size: 20px;
+        font-weight: 700;
+        color: #fff;
+      }
+      .subtitle {
+        font-size: 13px;
+        color: #a5b4fc;
+      }
+      .badge-status {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 14px;
+        border-radius: 9999px;
+        font-size: 12px;
+        font-weight: 600;
+        font-family: monospace;
+        background: rgba(16, 185, 129, 0.15);
+        border: 1px solid rgba(16, 185, 129, 0.4);
+        color: #34d399;
+      }
+      .badge-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background-color: #10b981;
+        box-shadow: 0 0 8px #10b981;
+      }
+      .card {
+        background: var(--bg-card);
+        border: 1px solid var(--border-color);
+        border-radius: 12px;
+        padding: 20px;
+      }
+      .card-title {
+        font-size: 15px;
+        font-weight: 700;
+        margin-bottom: 12px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        color: #e2e8f0;
+      }
+      .grid-2 {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+        gap: 14px;
+      }
+      .stat-box {
+        background: var(--bg-subtle);
+        border: 1px solid rgba(255, 255, 255, 0.05);
+        border-radius: 8px;
+        padding: 12px 16px;
+      }
+      .stat-label {
+        font-size: 11px;
+        color: var(--text-muted);
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+      }
+      .stat-val {
+        font-size: 14px;
+        font-weight: 600;
+        color: #fff;
+        margin-top: 4px;
+        font-family: monospace;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 13px;
+        margin-top: 8px;
+      }
+      th {
+        text-align: left;
+        padding: 10px 12px;
+        background: var(--bg-subtle);
+        color: var(--text-muted);
+        font-weight: 600;
+        font-size: 11px;
+        text-transform: uppercase;
+        border-bottom: 1px solid var(--border-color);
+      }
+      td {
+        padding: 10px 12px;
+        border-bottom: 1px solid rgba(51, 65, 85, 0.4);
+      }
+      code {
+        background: #020617;
+        border: 1px solid #1e293b;
+        color: var(--accent-blue);
+        padding: 2px 6px;
+        border-radius: 4px;
+        font-size: 12px;
+        font-family: monospace;
+      }
+      .workflow-step {
+        display: flex;
+        gap: 12px;
+        margin-bottom: 12px;
+      }
+      .step-num {
+        width: 24px;
+        height: 24px;
+        border-radius: 50%;
+        background: #312e81;
+        color: #c7d2fe;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 11px;
+        font-weight: bold;
+        flex-shrink: 0;
+      }
+      .step-text {
+        font-size: 13px;
+        color: #cbd5e1;
+      }
+      .info-box {
+        background: rgba(56, 189, 248, 0.08);
+        border: 1px solid rgba(56, 189, 248, 0.25);
+        border-radius: 8px;
+        padding: 14px;
+        font-size: 12px;
+        color: #bae6fd;
+      }
+      .info-box strong {
+        color: #fff;
+      }
+    </style>
   </head>
   <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
+    <div class="container">
+      <!-- Header -->
+      <div class="header-card">
+        <div class="header-title">
+          <div class="bot-icon">🛡️</div>
+          <div>
+            <h1>Union of Indians (UOI) Discord Bot</h1>
+            <p class="subtitle">Standalone Discord.js Service &bull; Zero Web Overhead</p>
+          </div>
+        </div>
+        <div class="badge-status">
+          <div class="badge-dot"></div>
+          <span>SERVICE ACTIVE</span>
+        </div>
+      </div>
+
+      <!-- Quick Metrics -->
+      <div class="grid-2">
+        <div class="stat-box">
+          <div class="stat-label">Entry Point</div>
+          <div class="stat-val">node index.js</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">Discord Library</div>
+          <div class="stat-val">discord.js v14</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">Server Gatekeeper</div>
+          <div class="stat-val">/card setup (Locked until setup)</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">Review Pipeline</div>
+          <div class="stat-val">Buttons + Modal Reason</div>
+        </div>
+      </div>
+
+      <!-- Host Deployment Guide -->
+      <div class="card">
+        <div class="card-title">🚀 Fast Deployment on Bot Hosts (WispByte / Pterodactyl)</div>
+        <div class="info-box">
+          <strong>Website dependencies removed:</strong> The repository has been streamlined to only what the Discord bot needs (<code>discord.js</code> and <code>dotenv</code>). When pushed to GitHub, your host will no longer hang downloading React, Vite, or web packages.
+        </div>
+        <div style="margin-top: 14px; display: flex; flex-direction: column; gap: 8px;">
+          <div class="workflow-step">
+            <div class="step-num">1</div>
+            <div class="step-text">
+              Create a <code>.env</code> file in your server file manager and add: <code>DISCORD_TOKEN=your_token_here</code>
+            </div>
+          </div>
+          <div class="workflow-step">
+            <div class="step-num">2</div>
+            <div class="step-text">
+              In Discord Developer Portal &rarr; <strong>Bot tab</strong> &rarr; Enable <strong>Server Members Intent</strong>.
+            </div>
+          </div>
+          <div class="workflow-step">
+            <div class="step-num">3</div>
+            <div class="step-text">
+              Startup command on your host: <code>node index.js</code>. Restart the server and your bot is online!
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Commands Reference -->
+      <div class="card">
+        <div class="card-title">📜 Integrated Slash Commands</div>
+        <table>
+          <thead>
+            <tr>
+              <th>Command</th>
+              <th>Description</th>
+              <th>Access</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>/card setup</code></td>
+              <td>Configures staff review channel, delivery channel, and reviewer role. Unlocks server commands.</td>
+              <td>Administrator</td>
+            </tr>
+            <tr>
+              <td><code>/card generate</code></td>
+              <td>Submits a citizen ID application to the staff review channel.</td>
+              <td>Citizens (Requires Setup)</td>
+            </tr>
+            <tr>
+              <td><code>/card show [target]</code></td>
+              <td>Retrieves and displays a registered citizen card from the central database.</td>
+              <td>Everyone</td>
+            </tr>
+            <tr>
+              <td><code>/card verify [serial]</code></td>
+              <td>Validates card authenticity and status (VALID / REVOKED).</td>
+              <td>Everyone</td>
+            </tr>
+            <tr>
+              <td><code>/card inspect [query]</code></td>
+              <td>Displays comprehensive audit trails and issuer details.</td>
+              <td>Staff Officers</td>
+            </tr>
+            <tr>
+              <td><code>/card promote</code></td>
+              <td>Promotes citizen to a higher hierarchy rank and updates card.</td>
+              <td>Staff Officers</td>
+            </tr>
+            <tr>
+              <td><code>/card revoke</code></td>
+              <td>Disciplinary card cancellation with required audit reason.</td>
+              <td>Staff Officers</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Workflow Overview -->
+      <div class="card">
+        <div class="card-title">⚡ Staff Review Workflow</div>
+        <div class="workflow-step">
+          <div class="step-num">1</div>
+          <div class="step-text">
+            <strong>Citizen Applies:</strong> Citizen runs <code>/card generate</code>. The card is <strong>not</strong> issued immediately.
+          </div>
+        </div>
+        <div class="workflow-step">
+          <div class="step-num">2</div>
+          <div class="step-text">
+            <strong>Staff Channel Notification:</strong> An embed arrives in the configured staff review channel with citizen avatar, Roblox username, rank, and <strong>[Accept]</strong> / <strong>[Decline]</strong> buttons.
+          </div>
+        </div>
+        <div class="workflow-step">
+          <div class="step-num">3</div>
+          <div class="step-text">
+            <strong>Staff Decision:</strong>
+            Clicking <strong>Accept</strong> generates the card, saves it to the vault, updates the citizen's nickname, and posts to the delivery channel.
+            Clicking <strong>Decline</strong> opens a modal requiring a rejection reason and notifies the applicant.
+          </div>
+        </div>
+      </div>
+    </div>
   </body>
 </html>
-
