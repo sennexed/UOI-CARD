@@ -14,6 +14,14 @@ import {
 } from 'discord.js';
 import fs from 'fs';
 import path from 'path';
+import {
+  loadServerMemory,
+  saveServerMemory,
+  recordServer,
+  autoDetectAndSaveSetup,
+  getServerRecord,
+  getAllServerRecords,
+} from '../memory.js';
 
 // Optional / resilient native canvas loading (prevents bot crashes on budget host containers)
 let createCanvas = null;
@@ -22,8 +30,38 @@ try {
   const canvasPkg = await import('@napi-rs/canvas');
   createCanvas = canvasPkg.createCanvas;
   loadImage = canvasPkg.loadImage;
+  console.log('[UOI Bot] 🎨 Native canvas engine (@napi-rs/canvas) initialized successfully.');
 } catch (canvasErr) {
   console.log('[UOI Bot] Notice: @napi-rs/canvas native binary is not installed or loading; fallback embed mode active.');
+}
+
+// Resilient pure-JS image dimension parser (works for PNG & JPEG without native binaries)
+function getImageDimensions(buffer) {
+  if (!buffer || buffer.length < 24) return { width: 1200, height: 900 };
+  try {
+    // Check PNG signature: 89 50 4E 47
+    if (buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4E && buffer[3] === 0x47) {
+      const width = buffer.readUInt32BE(16);
+      const height = buffer.readUInt32BE(20);
+      return { width, height };
+    }
+    // Check JPEG signature: FF D8
+    if (buffer[0] === 0xFF && buffer[1] === 0xD8) {
+      let offset = 2;
+      while (offset < buffer.length - 8) {
+        if (buffer[offset] !== 0xFF) break;
+        const marker = buffer[offset + 1];
+        if (marker === 0xC0 || marker === 0xC1 || marker === 0xC2) {
+          const height = buffer.readUInt16BE(offset + 5);
+          const width = buffer.readUInt16BE(offset + 7);
+          return { width, height };
+        }
+        const len = buffer.readUInt16BE(offset + 2);
+        offset += 2 + len;
+      }
+    }
+  } catch (_) {}
+  return { width: 1200, height: 900 };
 }
 
 // ========================================================
@@ -44,20 +82,36 @@ function ensureDirectories() {
 
 function loadDatabase() {
   ensureDirectories();
+  let parsed = { cards: {}, serToUser: {}, guilds: {}, pendingRequests: {} };
   try {
     if (fs.existsSync(DB_FILE)) {
       const raw = fs.readFileSync(DB_FILE, 'utf8');
-      const parsed = JSON.parse(raw);
-      if (!parsed.cards) parsed.cards = {};
-      if (!parsed.serToUser) parsed.serToUser = {};
-      if (!parsed.guilds) parsed.guilds = {};
-      if (!parsed.pendingRequests) parsed.pendingRequests = {};
-      return parsed;
+      const data = JSON.parse(raw);
+      if (data.cards) parsed.cards = data.cards;
+      if (data.serToUser) parsed.serToUser = data.serToUser;
+      if (data.guilds) parsed.guilds = data.guilds;
+      if (data.pendingRequests) parsed.pendingRequests = data.pendingRequests;
     }
   } catch (err) {
     console.error('[UOI Bot] Error reading database:', err.message);
   }
-  return { cards: {}, serToUser: {}, guilds: {}, pendingRequests: {} };
+
+  // Cross-merge with permanent server memory so setups and servers are never lost
+  try {
+    const memory = loadServerMemory();
+    for (const [gId, sRec] of Object.entries(memory.servers || {})) {
+      if (sRec.setup && sRec.setup.isSetup) {
+        parsed.guilds[gId] = {
+          ...parsed.guilds[gId],
+          ...sRec.setup,
+          name: sRec.name || parsed.guilds[gId]?.name,
+          guildId: gId,
+        };
+      }
+    }
+  } catch (_) {}
+
+  return parsed;
 }
 
 function saveDatabase(db) {
@@ -67,6 +121,36 @@ function saveDatabase(db) {
   } catch (err) {
     console.error('[UOI Bot] Error saving database:', err.message);
   }
+
+  // Sync guild configurations directly into permanent server memory
+  try {
+    const memory = loadServerMemory();
+    let memoryChanged = false;
+    for (const [gId, gConfig] of Object.entries(db.guilds || {})) {
+      if (gConfig && gConfig.isSetup) {
+        if (!memory.servers[gId]) {
+          memory.servers[gId] = {
+            guildId: gId,
+            name: gConfig.name || `Server ${gId}`,
+            firstSeen: gConfig.setupAt || new Date().toISOString(),
+            lastSeen: new Date().toISOString(),
+            isCurrentlyPresent: true,
+            setup: { ...gConfig },
+          };
+          memoryChanged = true;
+        } else {
+          memory.servers[gId].setup = {
+            ...memory.servers[gId].setup,
+            ...gConfig,
+          };
+          memoryChanged = true;
+        }
+      }
+    }
+    if (memoryChanged) {
+      saveServerMemory(memory);
+    }
+  } catch (_) {}
 }
 
 // Helper: Resolve Roblox User info and Avatar URL
@@ -132,6 +216,10 @@ async function fetchRobloxUserData(query) {
 // Helper: Find or download the active template (strictly 1 template per server)
 async function resolveTemplateImage(guildId) {
   ensureDirectories();
+
+  if (typeof loadImage !== 'function') {
+    return { img: null, source: null };
+  }
 
   // 1. Server-specific template check (1 template per server)
   if (guildId) {
@@ -271,7 +359,7 @@ async function renderCardImage({
     const photoW = 337;
     const photoH = 344;
 
-    if (avatarUrl) {
+    if (avatarUrl && typeof loadImage === 'function') {
       try {
         const avatarImg = await loadImage(avatarUrl);
         ctx.save();
@@ -320,7 +408,7 @@ async function renderCardImage({
       ctx.fillText(f.value, 485, boxY + 58);
     });
 
-    if (avatarUrl) {
+    if (avatarUrl && typeof loadImage === 'function') {
       try {
         const avatarImg = await loadImage(avatarUrl);
         ctx.drawImage(avatarImg, 56, 260, 345, 380);
@@ -518,6 +606,12 @@ export const cardCommand = {
             .setDescription('Reset bot display name to normal default appearance')
             .setRequired(false)
         )
+    )
+    // 10. /card memory (Inspect permanent memory & server setups)
+    .addSubcommand((sub) =>
+      sub
+        .setName('memory')
+        .setDescription('Inspect permanent server memory, saved channel setups, and persistent storage health')
     ),
 
   async execute(interaction) {
@@ -555,6 +649,7 @@ export const cardCommand = {
       db.guilds = db.guilds || {};
       db.guilds[guildId] = {
         isSetup: true,
+        autoConfigured: false,
         staffChannelId: staffChannel.id,
         staffChannelName: staffChannel.name,
         deliveryChannelId: deliveryChannel ? deliveryChannel.id : null,
@@ -569,13 +664,16 @@ export const cardCommand = {
         },
       };
       saveDatabase(db);
+      if (interaction.guild) {
+        recordServer(interaction.guild, db.guilds[guildId]);
+      }
 
       const embed = new EmbedBuilder()
         .setTitle('⚙️ UOI ID Card System Setup Complete!')
         .setColor(0x10b981)
         .setDescription(
           `**The Union of Indians ID Card System is now fully configured and ACTIVE on ${interaction.guild?.name || 'this server'}!**\n\n` +
-          `All citizen card commands are now **unlocked** and ready for use.`
+          `All citizen card commands are now **unlocked** and saved to permanent memory.`
         )
         .addFields(
           {
@@ -599,6 +697,11 @@ export const cardCommand = {
             inline: true,
           },
           {
+            name: '🧠 Permanent Memory Sync',
+            value: '✅ **Saved to permanent memory.** This server\'s configuration, review channels, and permissions will persist across bot reboots, redeployments, and server re-invites.',
+            inline: false,
+          },
+          {
             name: '📋 What happens next?',
             value:
               `1. Citizens can run \`/card generate\` to apply for their card.\n` +
@@ -607,17 +710,34 @@ export const cardCommand = {
               `4. You can customize the official card background anytime using \`/card set-template\`!`,
           }
         )
-        .setFooter({ text: 'Union of Indians Official Bot Registry' })
+        .setFooter({ text: 'Union of Indians Official Bot Registry • Permanent Memory Active' })
         .setTimestamp();
 
       return interaction.editReply({ embeds: [embed] });
     }
 
     // ==========================================
-    // SERVER SETUP GUARD: If not setup, lock all other commands!
+    // SERVER SETUP GUARD: Check or Auto-Provision from Permanent Memory
     // ==========================================
     const db = loadDatabase();
-    const guildConfig = db.guilds?.[guildId];
+    let guildConfig = db.guilds?.[guildId];
+
+    // If server setup not found, attempt auto-provisioning from permanent memory or auto-discovery to save setup time!
+    if (!guildConfig || !guildConfig.isSetup || !guildConfig.staffChannelId) {
+      if (interaction.guild) {
+        const autoSetup = autoDetectAndSaveSetup(interaction.guild, interaction.channel);
+        if (autoSetup && autoSetup.staffChannelId) {
+          db.guilds[guildId] = {
+            ...autoSetup,
+            name: interaction.guild.name,
+            guildId,
+          };
+          saveDatabase(db);
+          guildConfig = db.guilds[guildId];
+        }
+      }
+    }
+
     if (!guildConfig || !guildConfig.isSetup || !guildConfig.staffChannelId) {
       const embed = new EmbedBuilder()
         .setTitle('🔒 UOI Identification System: Server Setup Required')
@@ -675,7 +795,25 @@ export const cardCommand = {
 
         const arrayBuffer = await resp.arrayBuffer();
         const buffer = Buffer.from(arrayBuffer);
-        const testImg = await loadImage(buffer);
+
+        // Safely extract dimensions via native loadImage or fallback pure-JS header parser
+        let testImgWidth = 1200;
+        let testImgHeight = 900;
+        if (typeof loadImage === 'function') {
+          try {
+            const testImg = await loadImage(buffer);
+            testImgWidth = testImg.width;
+            testImgHeight = testImg.height;
+          } catch (_) {
+            const dims = getImageDimensions(buffer);
+            testImgWidth = dims.width;
+            testImgHeight = dims.height;
+          }
+        } else {
+          const dims = getImageDimensions(buffer);
+          testImgWidth = dims.width;
+          testImgHeight = dims.height;
+        }
 
         ensureDirectories();
 
@@ -701,14 +839,14 @@ export const cardCommand = {
           .setTitle('✅ Official Server Template Saved')
           .setColor(0x10b981)
           .setDescription(
-            `Successfully set the **official template** for **${interaction.guild ? interaction.guild.name : 'this server'}** (\`${testImg.width}×${testImg.height}px\`).\n` +
+            `Successfully set the **official template** for **${interaction.guild ? interaction.guild.name : 'this server'}** (\`${testImgWidth}×${testImgHeight}px\`).\n` +
             `🔒 **Policy Enforced:** Exactly **1 template per server**. Any previous server template has been superseded.\n` +
             `All future cards generated or viewed with \`/card show\` in this server will stamp directly onto this official template!`
           )
           .addFields(
             { name: 'Server ID', value: `\`${guildId || 'Global'}\``, inline: true },
             { name: 'Storage Slot', value: guildId ? `templates/${guildId}.png` : 'template.png', inline: true },
-            { name: 'Resolution', value: `${testImg.width} × ${testImg.height} px`, inline: true }
+            { name: 'Resolution', value: `${testImgWidth} × ${testImgHeight} px`, inline: true }
           )
           .setFooter({ text: 'Union of Indians Registry • Single-Template Server Isolation' })
           .setTimestamp();
@@ -1339,6 +1477,73 @@ export const cardCommand = {
           content: `❌ **Failed to apply name style:** ${err.message || 'Discord REST API error'}`,
         });
       }
+    }
+
+    // ==========================================
+    // COMMAND: /card memory (Inspect permanent memory & server setups)
+    // ==========================================
+    if (sub === 'memory') {
+      await interaction.deferReply({ ephemeral: false });
+
+      const allServers = getAllServerRecords();
+      const currentServerRecord = getServerRecord(guildId) || (interaction.guild ? recordServer(interaction.guild) : null);
+      const db = loadDatabase();
+      const guildSetup = db.guilds?.[guildId] || currentServerRecord?.setup;
+
+      const configuredCount = allServers.filter((s) => s.setup?.isSetup).length;
+      const autoCount = allServers.filter((s) => s.setup?.autoConfigured).length;
+      const totalCards = Object.keys(db.cards || {}).length;
+
+      const isSetup = guildSetup && guildSetup.isSetup;
+      const staffChannelText = guildSetup?.staffChannelId ? `<#${guildSetup.staffChannelId}> (\`${guildSetup.staffChannelName || 'channel'}\`)` : '*Not Set*';
+      const deliveryChannelText = guildSetup?.deliveryChannelId ? `<#${guildSetup.deliveryChannelId}> (\`${guildSetup.deliveryChannelName || 'channel'}\`)` : '*Default (Applicant Channel)*';
+      const staffRoleText = guildSetup?.staffRoleId ? `<@&${guildSetup.staffRoleId}> (\`${guildSetup.staffRoleName || 'role'}\`)` : '*Administrators & Officers*';
+      const autoNickText = guildSetup?.autoNickname ? '✅ Enabled' : '❌ Disabled';
+      const setupMode = guildSetup?.autoConfigured ? '⚡ Instant Zero-Config (Auto-Discovered)' : (isSetup ? '🛠️ Manual Administrator Setup' : '⚠️ Pending Setup');
+
+      const embed = new EmbedBuilder()
+        .setTitle('🧠 UOI Bot Permanent Memory Registry')
+        .setColor(0x0284c7)
+        .setDescription(
+          `**Permanent Server Memory is ACTIVE and persistent.**\n` +
+          `The bot automatically remembers every server it joins, preserving channel routing, roles, citizen cards, and configuration forever across container restarts, Cloud Run deployments, and server re-invites.`
+        )
+        .addFields(
+          {
+            name: `📍 Current Server: ${interaction.guild?.name || guildId}`,
+            value:
+              `• **Setup Status:** ${isSetup ? '✅ Active & Configured' : '⚠️ Not Configured'}\n` +
+              `• **Configuration Mode:** ${setupMode}\n` +
+              `• **Staff Review Channel:** ${staffChannelText}\n` +
+              `• **Card Delivery Channel:** ${deliveryChannelText}\n` +
+              `• **Staff Reviewers:** ${staffRoleText}\n` +
+              `• **Auto-Nickname:** ${autoNickText}\n` +
+              `• **First Remembered:** ${currentServerRecord?.firstSeen ? new Date(currentServerRecord.firstSeen).toLocaleDateString() : 'Today'}`,
+            inline: false,
+          },
+          {
+            name: '🌐 Network-Wide Memory Stats',
+            value:
+              `• **Remembered Servers:** \`${allServers.length}\` total servers\n` +
+              `• **Active Setups Saved:** \`${configuredCount}\` servers\n` +
+              `• **Zero-Config Instant Setups:** \`${autoCount}\` servers\n` +
+              `• **Total Cards in Database:** \`${totalCards}\` citizen cards`,
+            inline: true,
+          },
+          {
+            name: '🛡️ Storage & Resilience',
+            value:
+              `• **Primary Store:** \`data/server_memory.json\`\n` +
+              `• **Redundant Backup:** \`data/server_memory.backup.json\`\n` +
+              `• **Crash Protection:** Atomic write swapping\n` +
+              `• **Time Saved:** Zero-config auto-detection ready!`,
+            inline: true,
+          }
+        )
+        .setFooter({ text: 'Union of Indians Official Bot Registry • Permanent Memory' })
+        .setTimestamp();
+
+      return interaction.editReply({ embeds: [embed] });
     }
   },
 

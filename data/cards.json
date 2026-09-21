@@ -1,0 +1,25 @@
+{
+  "cards": {},
+  "serToUser": {},
+  "guilds": {
+    "1126909194826682408": {
+      "isSetup": true,
+      "autoConfigured": true,
+      "staffChannelId": "1549318102876168253",
+      "staffChannelName": "mod-logs",
+      "deliveryChannelId": null,
+      "deliveryChannelName": null,
+      "staffRoleId": null,
+      "staffRoleName": null,
+      "autoNickname": true,
+      "setupAt": "2026-09-21T08:06:07.797Z",
+      "setupBy": {
+        "discordId": "SYSTEM",
+        "discordTag": "Auto-Discovery"
+      },
+      "name": "UOI LABORATORY",
+      "guildId": "1126909194826682408"
+    }
+  },
+  "pendingRequests": {}
+}

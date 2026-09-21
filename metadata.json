@@ -1,6 +1,6 @@
 {
   "name": "UOI ID Card Data Processor",
-  "description": "Backend data processing module and Canvas scripting node for Union of Indians (UOI) Roblox RTP community ID cards.",
+  "description": "Discord bot & Canvas generator for Union of Indians (UOI) ID cards with permanent server memory, auto-discovery setup, and status dashboard.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

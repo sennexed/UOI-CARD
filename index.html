@@ -222,20 +222,54 @@
           <div class="stat-val">node index.js</div>
         </div>
         <div class="stat-box">
-          <div class="stat-label">Discord Library</div>
-          <div class="stat-val">discord.js v14</div>
+          <div class="stat-label">Permanent Memory</div>
+          <div class="stat-val" id="memory-stat" style="color: #38bdf8;">🧠 Active &bull; Persistent Vault</div>
         </div>
         <div class="stat-box">
-          <div class="stat-label">Server Gatekeeper</div>
-          <div class="stat-val">/card setup (Locked until setup)</div>
+          <div class="stat-label">Setup Architecture</div>
+          <div class="stat-val" style="color: #10b981;">⚡ Zero-Config + /card setup</div>
         </div>
         <div class="stat-box">
           <div class="stat-label">Bot Display Style</div>
           <div class="stat-val" style="color: #f59e0b;">Font 10 (Sinistre) &bull; 🇮🇳 Tricolor Gradient</div>
         </div>
         <div class="stat-box">
-          <div class="stat-label">Review Pipeline</div>
-          <div class="stat-val">Buttons + Modal Reason</div>
+          <div class="stat-label">Data Persistence</div>
+          <div class="stat-val">Atomic JSON + Backup Sync</div>
+        </div>
+      </div>
+
+      <!-- Permanent Server Memory Card -->
+      <div class="card" id="permanent-memory-card">
+        <div class="card-title">🧠 Permanent Server Memory & Auto-Setup Vault</div>
+        <div class="info-box">
+          <strong>Permanent Memory is Active:</strong> The bot now automatically remembers every server it has ever joined. Channel routing (<code>staff_channel</code>, <code>delivery_channel</code>), roles, applicant permissions, custom templates, and citizen ID records are persistently saved to <code>data/server_memory.json</code> with redundant backup syncing. You never have to re-configure servers when the bot restarts or re-joins!
+        </div>
+
+        <div style="margin-top: 14px; display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px;">
+          <div class="stat-box">
+            <div class="stat-label">Remembered Servers</div>
+            <div class="stat-val" id="mem-server-count">Scanning...</div>
+          </div>
+          <div class="stat-box">
+            <div class="stat-label">Active Channel Routing</div>
+            <div class="stat-val" id="mem-setup-count" style="color: #10b981;">Scanning...</div>
+          </div>
+          <div class="stat-box">
+            <div class="stat-label">Time-Saving Auto-Discovery</div>
+            <div class="stat-val" id="mem-auto-count" style="color: #38bdf8;">Zero-Config Active</div>
+          </div>
+          <div class="stat-box">
+            <div class="stat-label">Storage Integrity</div>
+            <div class="stat-val" style="color: #a78bfa;">Crash-Proof Atomic Write</div>
+          </div>
+        </div>
+
+        <div style="margin-top: 14px;" id="servers-container">
+          <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 8px;">REMEMBERED SERVER REGISTRY:</div>
+          <div id="server-list-box" style="background: var(--bg-subtle); border-radius: 8px; padding: 12px; font-size: 13px; color: #cbd5e1;">
+            Loading remembered servers from persistent memory...
+          </div>
         </div>
       </div>
 
@@ -319,6 +353,11 @@
               <td>Applies Discord name styles with <strong>Font 10 (Sinistre Vampyre)</strong>, Neon Glow, and custom colors.</td>
               <td>Administrator</td>
             </tr>
+            <tr>
+              <td><code>/card memory</code></td>
+              <td>Inspects permanent server memory, channel routing, and persistent database storage status.</td>
+              <td>Everyone</td>
+            </tr>
           </tbody>
         </table>
       </div>
@@ -348,5 +387,62 @@
         </div>
       </div>
     </div>
+
+    <script>
+      async function updateMemoryStatus() {
+        try {
+          const res = await fetch('/api/health');
+          if (!res.ok) return;
+          const data = await res.json();
+          if (data.permanentMemory) {
+            const mem = data.permanentMemory;
+            const countEl = document.getElementById('mem-server-count');
+            const setupEl = document.getElementById('mem-setup-count');
+            const autoEl = document.getElementById('mem-auto-count');
+            const listEl = document.getElementById('server-list-box');
+
+            if (countEl) countEl.textContent = `${mem.totalRememberedServers} Servers`;
+            if (setupEl) setupEl.textContent = `${mem.activeSetups} Configured`;
+            if (autoEl) autoEl.textContent = `${mem.autoConfiguredCount} Zero-Config`;
+
+            if (listEl) {
+              if (mem.servers && mem.servers.length > 0) {
+                listEl.innerHTML = mem.servers
+                  .map(
+                    (s) => `
+                    <div style="display: flex; justify-content: space-between; align-items: center; padding: 6px 0; border-bottom: 1px solid rgba(255,255,255,0.05);">
+                      <div>
+                        <strong>${escapeHtml(s.name)}</strong>
+                        <span style="font-size: 11px; color: var(--text-muted); margin-left: 8px;">ID: ${s.id}</span>
+                      </div>
+                      <div style="display: flex; gap: 6px;">
+                        <span style="font-size: 11px; padding: 2px 8px; border-radius: 4px; background: ${s.isSetup ? 'rgba(16,185,129,0.2)' : 'rgba(239,68,68,0.2)'}; color: ${s.isSetup ? '#34d399' : '#f87171'};">
+                          ${s.isSetup ? (s.autoConfigured ? '⚡ Zero-Config' : '✅ Configured') : '⚠️ Pending'}
+                        </span>
+                        ${s.staffChannel ? `<span style="font-size: 11px; padding: 2px 8px; border-radius: 4px; background: rgba(56,189,248,0.15); color: #38bdf8;">#${escapeHtml(s.staffChannel)}</span>` : ''}
+                      </div>
+                    </div>`
+                  )
+                  .join('');
+              } else {
+                listEl.innerHTML = '<span style="color: var(--text-muted);">No servers recorded yet. The bot will automatically record every server when it connects to Discord Gateway!</span>';
+              }
+            }
+          }
+        } catch (_) {}
+      }
+
+      function escapeHtml(text) {
+        if (!text) return '';
+        return String(text)
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;');
+      }
+
+      updateMemoryStatus();
+      setInterval(updateMemoryStatus, 5000);
+    </script>
   </body>
 </html>

@@ -4,11 +4,30 @@ import http from 'http';
 import fs from 'fs';
 import path from 'path';
 import { cardCommand } from './commands/card.js';
+import {
+  syncGuildsMemory,
+  recordServer,
+  autoDetectAndSaveSetup,
+  markServerLeft,
+  loadServerMemory,
+  getAllServerRecords,
+} from './memory.js';
 
-// 1. Lightweight HTTP Healthcheck & Status server for Pterodactyl / WispByte container monitor
-const PORT = 3000;
-const healthServer = http.createServer((req, res) => {
-  if (req.url === '/api/health' || req.url === '/health') {
+// 1. Lightweight HTTP Healthcheck & Status server for Cloud Run / Pterodactyl / WispByte
+const DEFAULT_PORT = 3000;
+const CLOUD_RUN_PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : null;
+
+const requestHandler = (req, res) => {
+  const urlPath = req.url ? req.url.split('?')[0] : '/';
+  if (
+    urlPath === '/api/health' ||
+    urlPath === '/health' ||
+    urlPath === '/healthz' ||
+    urlPath === '/_health' ||
+    urlPath === '/ready'
+  ) {
+    const memory = loadServerMemory();
+    const serverList = Object.values(memory.servers || {});
     res.writeHead(200, { 'Content-Type': 'application/json' });
     return res.end(
       JSON.stringify({
@@ -16,6 +35,21 @@ const healthServer = http.createServer((req, res) => {
         service: 'Union of Indians (UOI) Discord Bot',
         botReady: !!(globalThis.__uoiBotClient && globalThis.__uoiBotClient.isReady()),
         uptimeSeconds: Math.floor(process.uptime()),
+        permanentMemory: {
+          totalRememberedServers: serverList.length,
+          activeSetups: serverList.filter((s) => s.setup?.isSetup).length,
+          autoConfiguredCount: serverList.filter((s) => s.setup?.autoConfigured).length,
+          servers: serverList.map((s) => ({
+            id: s.guildId,
+            name: s.name,
+            isSetup: !!s.setup?.isSetup,
+            autoConfigured: !!s.setup?.autoConfigured,
+            staffChannel: s.setup?.staffChannelName || null,
+            firstSeen: s.firstSeen,
+            lastSeen: s.lastSeen,
+            isPresent: s.isCurrentlyPresent,
+          })),
+        },
       })
     );
   }
@@ -32,19 +66,34 @@ const healthServer = http.createServer((req, res) => {
 
   res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
   res.end('Union of Indians (UOI) Discord Bot is active.');
-});
+};
 
-healthServer.on('error', (err) => {
+// Start listener on Port 3000 (standard for local dev proxy)
+const server3000 = http.createServer(requestHandler);
+server3000.on('error', (err) => {
   if (err.code === 'EADDRINUSE') {
-    console.log(`[UOI Bot] Note: Port ${PORT} is occupied, running in background bot mode.`);
+    console.log(`[UOI Bot] Note: Port ${DEFAULT_PORT} is occupied, running in background bot mode.`);
   } else {
-    console.warn('[UOI Bot] HTTP Server notice:', err.message);
+    console.warn(`[UOI Bot] Port ${DEFAULT_PORT} notice:`, err.message);
   }
 });
-
-healthServer.listen(PORT, '0.0.0.0', () => {
-  console.log(`[UOI Bot] 🌐 Healthcheck listener active on port ${PORT}`);
+server3000.listen(DEFAULT_PORT, '0.0.0.0', () => {
+  console.log(`[UOI Bot] 🌐 Healthcheck listener active on port ${DEFAULT_PORT}`);
 });
+
+// Start listener on Cloud Run deployment port if specified and different from 3000
+if (CLOUD_RUN_PORT && CLOUD_RUN_PORT !== DEFAULT_PORT) {
+  const serverCloudRun = http.createServer(requestHandler);
+  serverCloudRun.on('error', (err) => {
+    // In dev container, nginx occupies 8080, which is normal and expected
+    if (err.code !== 'EADDRINUSE') {
+      console.warn(`[UOI Bot] Cloud Run port ${CLOUD_RUN_PORT} notice:`, err.message);
+    }
+  });
+  serverCloudRun.listen(CLOUD_RUN_PORT, '0.0.0.0', () => {
+    console.log(`[UOI Bot] 🌐 Cloud Run listener active on port ${CLOUD_RUN_PORT}`);
+  });
+}
 
 // 2. Discord Bot Authentication & Slash Command Setup
 const token = (process.env.DISCORD_TOKEN || '').trim();
@@ -87,6 +136,14 @@ if (!token || token === 'your_bot_token_here' || token.includes('your_token')) {
       console.error('[UOI Bot] ❌ Error registering slash commands:', err.message);
     }
 
+    // Synchronize permanent server memory registry
+    try {
+      console.log('[UOI Bot] 🧠 Synchronizing permanent server memory and setups...');
+      await syncGuildsMemory(client);
+    } catch (memErr) {
+      console.warn('[UOI Bot] Notice during guild memory sync:', memErr.message);
+    }
+
     // Apply Font 10 (Sinistre Vampyre) with Orange, White & Green Gradient Style across all servers
     try {
       console.log('[UOI Bot] 🎨 Applying Font 10 (Sinistre) with Orange, White & Green Gradient...');
@@ -123,9 +180,15 @@ if (!token || token === 'your_bot_token_here' || token.includes('your_token')) {
     }
   });
 
-  // Automatically style bot name when added to a new server
+  // Automatically remember server and style bot name when added to a new server
   client.on('guildCreate', async (guild) => {
     try {
+      // 1. Permanently record server and auto-configure zero-config setup
+      recordServer(guild);
+      autoDetectAndSaveSetup(guild);
+      console.log(`[UOI Bot] 🧠 Permanent memory saved for server: ${guild.name} (${guild.id})`);
+
+      // 2. Apply Font 10 styling
       const rest = new REST({ version: '10' }).setToken(token);
       try {
         await rest.patch(`/guilds/${guild.id}/members/@me`, {
@@ -146,7 +209,17 @@ if (!token || token === 'your_bot_token_here' || token.includes('your_token')) {
       }
       console.log(`[UOI Bot] 🎨 Applied Font 10 Tricolor Gradient to new server: ${guild.name}`);
     } catch (err) {
-      console.warn(`[UOI Bot] Could not apply name style in new server ${guild.name}:`, err.message);
+      console.warn(`[UOI Bot] Notice in new server handler ${guild.name}:`, err.message);
+    }
+  });
+
+  // When removed from a server, retain configuration and cards permanently
+  client.on('guildDelete', (guild) => {
+    try {
+      markServerLeft(guild.id);
+      console.log(`[UOI Bot] 🧠 Preserved permanent memory for departed server: ${guild.name || guild.id}`);
+    } catch (err) {
+      console.warn('[UOI Bot] Notice on guildDelete:', err.message);
     }
   });
 
