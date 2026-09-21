@@ -10,6 +10,7 @@ import {
   TextInputBuilder,
   TextInputStyle,
   ChannelType,
+  REST,
 } from 'discord.js';
 import fs from 'fs';
 import path from 'path';
@@ -461,6 +462,61 @@ export const cardCommand = {
         )
         .addStringOption((opt) =>
           opt.setName('reason').setDescription('Reason for revocation').setRequired(true)
+        )
+    )
+    // 9. /card botstyle (Custom Bot Name Styles including 10th Font Sinistre)
+    .addSubcommand((sub) =>
+      sub
+        .setName('botstyle')
+        .setDescription('Apply or customize Discord bot name style with custom fonts and effects (Admins Only)')
+        .addIntegerOption((opt) =>
+          opt
+            .setName('font')
+            .setDescription('Choose font style (Default: Font 10 - Sinistre Vampyre)')
+            .setRequired(false)
+            .addChoices(
+              { name: '🧛 Font 10: Sinistre (Vampyre / Gothic) [Requested]', value: 10 },
+              { name: '👾 Font 8: Pixelify Sans (8-Bit Arcade)', value: 8 },
+              { name: '🌸 Font 3: Cherry Bomb (Sakura)', value: 3 },
+              { name: '🍬 Font 4: Chicle (Jellybean)', value: 4 },
+              { name: '🌐 Font 6: MuseoModerno (Modern Geometric)', value: 6 },
+              { name: '⚔️ Font 7: Neo-Castel (Medieval)', value: 7 },
+              { name: '📜 Font 12: Zilla Slab (Tempo / Serif)', value: 12 },
+              { name: '🔄 Font 11: GG Sans (Discord Default)', value: 11 }
+            )
+        )
+        .addIntegerOption((opt) =>
+          opt
+            .setName('effect')
+            .setDescription('Visual effect style (Default: Two-Tone Gradient)')
+            .setRequired(false)
+            .addChoices(
+              { name: '🌈 Gradient (Effect 2) [Default]', value: 2 },
+              { name: '⚡ Neon Glow (Effect 3)', value: 3 },
+              { name: '💥 Pop Accent (Effect 5)', value: 5 },
+              { name: '🎨 Toon Outline (Effect 4)', value: 4 },
+              { name: '⬛ Solid Color (Effect 1)', value: 1 }
+            )
+        )
+        .addStringOption((opt) =>
+          opt
+            .setName('color')
+            .setDescription('Display Color Theme (Default: Orange, White & Green Gradient)')
+            .setRequired(false)
+            .addChoices(
+              { name: '🇮🇳 Tricolor (Orange, White & Green Gradient) [Default]', value: 'tiranga' },
+              { name: '💠 UOI Cyan (#38BDF8)', value: 'cyan' },
+              { name: '🇮🇳 Saffron Gold (#F59E0B)', value: 'saffron' },
+              { name: '🌿 Emerald Green (#10B981)', value: 'emerald' },
+              { name: '🔮 Royal Purple (#8B5CF6)', value: 'purple' },
+              { name: '🩸 Crimson Red (#EF4444)', value: 'crimson' }
+            )
+        )
+        .addBooleanOption((opt) =>
+          opt
+            .setName('reset')
+            .setDescription('Reset bot display name to normal default appearance')
+            .setRequired(false)
         )
     ),
 
@@ -1145,6 +1201,144 @@ export const cardCommand = {
         .setFooter({ text: 'Database entry marked as REVOKED' })
         .setTimestamp();
       return interaction.reply({ embeds: [embed] });
+    }
+
+    // ==========================================
+    // COMMAND: /card botstyle (Custom Bot Name Styles with Font 10 Sinistre)
+    // ==========================================
+    if (sub === 'botstyle') {
+      await interaction.deferReply({ ephemeral: false });
+
+      if (
+        interaction.member &&
+        !interaction.member.permissions.has(PermissionFlagsBits.ManageGuild) &&
+        !interaction.member.permissions.has(PermissionFlagsBits.Administrator)
+      ) {
+        return interaction.editReply({
+          content: '❌ **Permission Denied:** Only administrators or members with `Manage Server` can customize the bot display name style.',
+        });
+      }
+
+      const reset = interaction.options.getBoolean('reset');
+      const fontId = interaction.options.getInteger('font') ?? 10; // Default: Font 10 Sinistre
+      const effectId = interaction.options.getInteger('effect') ?? 2; // Default: Gradient (Effect 2)
+      const colorChoice = interaction.options.getString('color') ?? 'tiranga'; // Default: Tiranga Gradient
+
+      // Orange (Saffron: 0xFF9933), White (0xFFFFFF), Green (India Green: 0x138808)
+      let colors = [0xff9933, 0xffffff, 0x138808]; // Default Tiranga Orange, White & Green
+      let fallbackColors = [0xff9933, 0x138808];
+
+      if (colorChoice === 'cyan') {
+        colors = [0x38bdf8];
+        fallbackColors = [0x38bdf8];
+      } else if (colorChoice === 'saffron') {
+        colors = [0xf59e0b];
+        fallbackColors = [0xf59e0b];
+      } else if (colorChoice === 'emerald') {
+        colors = [0x10b981];
+        fallbackColors = [0x10b981];
+      } else if (colorChoice === 'purple') {
+        colors = [0x8b5cf6];
+        fallbackColors = [0x8b5cf6];
+      } else if (colorChoice === 'crimson') {
+        colors = [0xef4444];
+        fallbackColors = [0xef4444];
+      } else if (colorChoice === 'tiranga') {
+        colors = [0xff9933, 0xffffff, 0x138808]; // Orange, White, Green
+        fallbackColors = [0xff9933, 0x138808];    // Resilient fallback if API limits to 2
+      }
+
+      const token = (process.env.DISCORD_TOKEN || '').trim();
+      if (!token) {
+        return interaction.editReply({
+          content: '❌ **Bot Token Missing:** DISCORD_TOKEN is not configured.',
+        });
+      }
+
+      const rest = new REST({ version: '10' }).setToken(token);
+
+      try {
+        if (reset) {
+          await rest.patch(`/guilds/${guildId}/members/@me`, {
+            body: {
+              display_name_font_id: null,
+              display_name_effect_id: null,
+              display_name_colors: null,
+            },
+          });
+
+          return interaction.editReply({
+            embeds: [
+              new EmbedBuilder()
+                .setTitle('🔄 Bot Display Name Style Reset')
+                .setColor(0x94a3b8)
+                .setDescription('The bot display name has been reverted to normal standard Discord styling.')
+                .setTimestamp(),
+            ],
+          });
+        }
+
+        // Resilient patch: Try 3 colors (Orange, White, Green), fallback to 2 if Discord rejects length
+        try {
+          await rest.patch(`/guilds/${guildId}/members/@me`, {
+            body: {
+              display_name_font_id: fontId,
+              display_name_effect_id: effectId,
+              display_name_colors: colors,
+            },
+          });
+        } catch (firstAttemptErr) {
+          if (colors.length > 2) {
+            await rest.patch(`/guilds/${guildId}/members/@me`, {
+              body: {
+                display_name_font_id: fontId,
+                display_name_effect_id: effectId,
+                display_name_colors: fallbackColors,
+              },
+            });
+          } else {
+            throw firstAttemptErr;
+          }
+        }
+
+        const fontNames = {
+          10: 'Font 10: Sinistre (Vampyre / Gothic) 🧛',
+          8: 'Font 8: Pixelify Sans (8-Bit Arcade) 👾',
+          3: 'Font 3: Cherry Bomb (Sakura) 🌸',
+          4: 'Font 4: Chicle (Jellybean) 🍬',
+          6: 'Font 6: MuseoModerno (Modern) 🌐',
+          7: 'Font 7: Neo-Castel (Medieval) ⚔️',
+          11: 'Font 11: GG Sans (Default) 🔄',
+          12: 'Font 12: Zilla Slab (Tempo / Serif) 📜',
+        };
+
+        const effectNames = {
+          1: 'Solid Flat Color',
+          2: 'Two-Tone Gradient',
+          3: 'Electric Neon Glow ⚡',
+          4: 'Toon Pop Outline',
+          5: 'Pop Accent Shadow 💥',
+        };
+
+        const embed = new EmbedBuilder()
+          .setTitle('🎨 UOI Bot Name Style Applied!')
+          .setColor(colors[0])
+          .setDescription(`Successfully applied **${fontNames[fontId] || `Font ${fontId}`}** to <@${interaction.client.user.id}> in **${interaction.guild?.name || 'this server'}**!`)
+          .addFields(
+            { name: 'Active Font', value: `\`${fontNames[fontId] || fontId}\``, inline: true },
+            { name: 'Visual Effect', value: `\`${effectNames[effectId] || effectId}\``, inline: true },
+            { name: 'Color Theme', value: `\`${colorChoice.toUpperCase()}\``, inline: true }
+          )
+          .setFooter({ text: 'Visible in member list, chat messages, and member profile' })
+          .setTimestamp();
+
+        return interaction.editReply({ embeds: [embed] });
+      } catch (err) {
+        console.error('[UOI Bot] Error applying bot style:', err);
+        return interaction.editReply({
+          content: `❌ **Failed to apply name style:** ${err.message || 'Discord REST API error'}`,
+        });
+      }
     }
   },
 

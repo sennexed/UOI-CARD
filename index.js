@@ -86,6 +86,68 @@ if (!token || token === 'your_bot_token_here' || token.includes('your_token')) {
     } catch (err) {
       console.error('[UOI Bot] ❌ Error registering slash commands:', err.message);
     }
+
+    // Apply Font 10 (Sinistre Vampyre) with Orange, White & Green Gradient Style across all servers
+    try {
+      console.log('[UOI Bot] 🎨 Applying Font 10 (Sinistre) with Orange, White & Green Gradient...');
+      const guilds = await client.guilds.fetch();
+      for (const [guildId, oauthGuild] of guilds) {
+        try {
+          // Attempt with 3 colors: Orange, White, Green
+          await rest.patch(`/guilds/${guildId}/members/@me`, {
+            body: {
+              display_name_font_id: 10,        // 10th Font: Sinistre (Vampyre / Gothic)
+              display_name_effect_id: 2,      // Gradient effect
+              display_name_colors: [0xff9933, 0xffffff, 0x138808], // Orange (#FF9933), White (#FFFFFF), Green (#138808)
+            },
+          });
+          console.log(`[UOI Bot] 🎨 Applied Font 10 Tricolor Gradient to: ${oauthGuild.name} (${guildId})`);
+        } catch (firstErr) {
+          // If Discord API strictly restricts gradient array to max 2 items, fall back to Orange & Green
+          try {
+            await rest.patch(`/guilds/${guildId}/members/@me`, {
+              body: {
+                display_name_font_id: 10,
+                display_name_effect_id: 2,
+                display_name_colors: [0xff9933, 0x138808], // Orange & Green
+              },
+            });
+            console.log(`[UOI Bot] 🎨 Applied Font 10 Two-Tone Gradient to: ${oauthGuild.name} (${guildId})`);
+          } catch (guildStyleErr) {
+            console.warn(`[UOI Bot] Notice: Could not set name style in guild ${guildId}:`, guildStyleErr.message);
+          }
+        }
+      }
+    } catch (styleErr) {
+      console.warn('[UOI Bot] Name styling notice:', styleErr.message);
+    }
+  });
+
+  // Automatically style bot name when added to a new server
+  client.on('guildCreate', async (guild) => {
+    try {
+      const rest = new REST({ version: '10' }).setToken(token);
+      try {
+        await rest.patch(`/guilds/${guild.id}/members/@me`, {
+          body: {
+            display_name_font_id: 10,
+            display_name_effect_id: 2, // Gradient
+            display_name_colors: [0xff9933, 0xffffff, 0x138808], // Orange, White, Green
+          },
+        });
+      } catch (_) {
+        await rest.patch(`/guilds/${guild.id}/members/@me`, {
+          body: {
+            display_name_font_id: 10,
+            display_name_effect_id: 2,
+            display_name_colors: [0xff9933, 0x138808],
+          },
+        });
+      }
+      console.log(`[UOI Bot] 🎨 Applied Font 10 Tricolor Gradient to new server: ${guild.name}`);
+    } catch (err) {
+      console.warn(`[UOI Bot] Could not apply name style in new server ${guild.name}:`, err.message);
+    }
   });
 
   client.on('interactionCreate', async (interaction) => {
