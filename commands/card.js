@@ -23,29 +23,125 @@ import {
   getAllServerRecords,
 } from '../memory.js';
 
-// Optional / resilient native canvas loading (prevents bot crashes on budget host containers)
+// High-Performance Native Canvas Engine (@napi-rs/canvas backed by Skia)
 let createCanvas = null;
 let loadImage = null;
+let canvasEngineName = 'Safe Fallback (Embed Only)';
+let canvasFeatures = {
+  engine: 'none',
+  skiaAccelerated: false,
+  fontsLoaded: 0,
+  highQualitySmoothing: false,
+};
+
 try {
-  const canvasPkg = await import('@napi-rs/canvas');
-  createCanvas = canvasPkg.createCanvas;
-  loadImage = canvasPkg.loadImage;
-  console.log('[UOI Bot] 🎨 Native canvas engine (@napi-rs/canvas) initialized successfully.');
-} catch (canvasErr) {
-  console.log('[UOI Bot] Notice: @napi-rs/canvas native binary is not installed or loading; fallback embed mode active.');
+  const napi = await import('@napi-rs/canvas');
+  createCanvas = napi?.createCanvas || napi?.default?.createCanvas || null;
+  loadImage = napi?.loadImage || napi?.default?.loadImage || null;
+
+  if (typeof createCanvas === 'function' && typeof loadImage === 'function') {
+    canvasEngineName = '@napi-rs/canvas (Rust / Skia Engine)';
+    canvasFeatures.engine = '@napi-rs/canvas';
+    canvasFeatures.skiaAccelerated = true;
+    canvasFeatures.highQualitySmoothing = true;
+
+    // Load available system fonts into Skia's GlobalFonts table
+    const globalFonts = napi.GlobalFonts || napi.default?.GlobalFonts;
+    if (globalFonts) {
+      try {
+        if (typeof globalFonts.loadSystemFonts === 'function') {
+          globalFonts.loadSystemFonts();
+        }
+        canvasFeatures.fontsLoaded = Array.isArray(globalFonts.families) ? globalFonts.families.length : 0;
+      } catch (_) {}
+    }
+  }
+} catch (_) {}
+
+// Secondary fallback: node-canvas if available in environment
+if (!createCanvas || typeof createCanvas !== 'function') {
+  try {
+    const nodeCanvas = await import('canvas');
+    createCanvas = nodeCanvas?.createCanvas || nodeCanvas?.default?.createCanvas || null;
+    loadImage = nodeCanvas?.loadImage || nodeCanvas?.default?.loadImage || null;
+    if (typeof createCanvas === 'function') {
+      canvasEngineName = 'node-canvas (Cairo)';
+      canvasFeatures.engine = 'node-canvas';
+      canvasFeatures.skiaAccelerated = false;
+    }
+  } catch (_) {}
 }
 
-// Resilient pure-JS image dimension parser (works for PNG & JPEG without native binaries)
+if (createCanvas && typeof createCanvas === 'function') {
+  console.log(`[UOI Bot] 🎨 Best canvas engine initialized: ${canvasEngineName} (${canvasFeatures.fontsLoaded} font families registered)`);
+} else {
+  console.log('[UOI Bot] Notice: Native canvas engine running in safe fallback mode.');
+}
+
+export function getCanvasEngineInfo() {
+  return {
+    engine: canvasEngineName,
+    available: typeof createCanvas === 'function' && typeof loadImage === 'function',
+    features: canvasFeatures,
+  };
+}
+
+// Ultra-safe loadImage wrapper that NEVER throws "loadImage is not a function"
+async function safeLoadImage(source) {
+  if (!source) return null;
+  if (typeof loadImage !== 'function') return null;
+
+  try {
+    // 1. Buffer input
+    if (Buffer.isBuffer(source)) {
+      if (source.length === 0) return null;
+      return await loadImage(source);
+    }
+
+    // 2. HTTP/HTTPS URL input: fetch with timeout to avoid hanging Discord interactions
+    if (typeof source === 'string' && (source.startsWith('http://') || source.startsWith('https://'))) {
+      try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 6000);
+        const resp = await fetch(source, { signal: controller.signal });
+        clearTimeout(timeout);
+        if (!resp.ok) return null;
+        const arrayBuffer = await resp.arrayBuffer();
+        const buf = Buffer.from(arrayBuffer);
+        if (!buf || buf.length === 0) return null;
+        return await loadImage(buf);
+      } catch (_) {
+        // Fallback to direct loadImage if fetch fails or aborts
+        return await loadImage(source).catch(() => null);
+      }
+    }
+
+    // 3. File path string input
+    if (typeof source === 'string') {
+      if (!fs.existsSync(source)) return null;
+      const stat = fs.statSync(source);
+      if (stat.size === 0) return null;
+      return await loadImage(source);
+    }
+
+    return await loadImage(source);
+  } catch (err) {
+    console.warn('[UOI Bot] Safe image load notice:', err.message);
+    return null;
+  }
+}
+
+// Resilient pure-JS image dimension parser (works for PNG, JPEG, GIF, WebP without native binaries)
 function getImageDimensions(buffer) {
   if (!buffer || buffer.length < 24) return { width: 1200, height: 900 };
   try {
-    // Check PNG signature: 89 50 4E 47
+    // 1. PNG signature: 89 50 4E 47
     if (buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4E && buffer[3] === 0x47) {
       const width = buffer.readUInt32BE(16);
       const height = buffer.readUInt32BE(20);
-      return { width, height };
+      return { width: width || 1200, height: height || 900 };
     }
-    // Check JPEG signature: FF D8
+    // 2. JPEG signature: FF D8
     if (buffer[0] === 0xFF && buffer[1] === 0xD8) {
       let offset = 2;
       while (offset < buffer.length - 8) {
@@ -54,10 +150,34 @@ function getImageDimensions(buffer) {
         if (marker === 0xC0 || marker === 0xC1 || marker === 0xC2) {
           const height = buffer.readUInt16BE(offset + 5);
           const width = buffer.readUInt16BE(offset + 7);
-          return { width, height };
+          return { width: width || 1200, height: height || 900 };
         }
         const len = buffer.readUInt16BE(offset + 2);
         offset += 2 + len;
+      }
+    }
+    // 3. GIF signature: GIF87a or GIF89a
+    if (buffer[0] === 0x47 && buffer[1] === 0x49 && buffer[2] === 0x46) {
+      const width = buffer.readUInt16LE(6);
+      const height = buffer.readUInt16LE(8);
+      return { width: width || 1200, height: height || 900 };
+    }
+    // 4. WebP signature: RIFF....WEBP
+    if (buffer[0] === 0x52 && buffer[1] === 0x49 && buffer[2] === 0x46 && buffer[3] === 0x46 &&
+        buffer[8] === 0x57 && buffer[9] === 0x45 && buffer[10] === 0x42 && buffer[11] === 0x50) {
+      if (buffer[12] === 0x56 && buffer[13] === 0x50 && buffer[14] === 0x38 && buffer[15] === 0x20) {
+        const width = buffer.readUInt16LE(26) & 0x3fff;
+        const height = buffer.readUInt16LE(28) & 0x3fff;
+        return { width: width || 1200, height: height || 900 };
+      }
+      if (buffer[12] === 0x56 && buffer[13] === 0x50 && buffer[14] === 0x38 && buffer[15] === 0x4C) {
+        const b0 = buffer[21];
+        const b1 = buffer[22];
+        const b2 = buffer[23];
+        const b3 = buffer[24];
+        const width = 1 + (((b1 & 0x3f) << 8) | b0);
+        const height = 1 + (((b3 & 0xf) << 10) | (b2 << 2) | ((b1 & 0xc0) >> 6));
+        return { width: width || 1200, height: height || 900 };
       }
     }
   } catch (_) {}
@@ -217,10 +337,6 @@ async function fetchRobloxUserData(query) {
 async function resolveTemplateImage(guildId) {
   ensureDirectories();
 
-  if (typeof loadImage !== 'function') {
-    return { img: null, source: null };
-  }
-
   // 1. Server-specific template check (1 template per server)
   if (guildId) {
     const serverFiles = [
@@ -230,10 +346,8 @@ async function resolveTemplateImage(guildId) {
     ];
     for (const f of serverFiles) {
       if (fs.existsSync(f)) {
-        try {
-          const img = await loadImage(f);
-          return { img, source: `Server Template (${guildId})` };
-        } catch (_) {}
+        const img = await safeLoadImage(f);
+        if (img) return { img, source: `Server Template (${guildId})`, filePath: f };
       }
     }
   }
@@ -251,12 +365,10 @@ async function resolveTemplateImage(guildId) {
   ];
 
   for (const filename of candidateFiles) {
-    try {
-      if (fs.existsSync(filename)) {
-        const img = await loadImage(filename);
-        return { img, source: filename };
-      }
-    } catch (_) {}
+    if (fs.existsSync(filename)) {
+      const img = await safeLoadImage(filename);
+      if (img) return { img, source: filename, filePath: filename };
+    }
   }
 
   // 3. Environment URL check
@@ -269,15 +381,15 @@ async function resolveTemplateImage(guildId) {
         const arrayBuffer = await resp.arrayBuffer();
         const buffer = Buffer.from(arrayBuffer);
         fs.writeFileSync('template.png', buffer);
-        const img = await loadImage(buffer);
-        return { img, source: 'TEMPLATE_URL (saved as template.png)' };
+        const img = await safeLoadImage(buffer);
+        if (img) return { img, source: 'TEMPLATE_URL (saved as template.png)', filePath: 'template.png' };
       }
     } catch (err) {
       console.warn('[UOI Bot] Failed to fetch TEMPLATE_URL:', err.message);
     }
   }
 
-  return { img: null, source: null };
+  return { img: null, source: null, filePath: null };
 }
 
 // Helper: Render official 1200x900 UOI Citizen ID Card
@@ -294,133 +406,162 @@ async function renderCardImage({
   if (!createCanvas || typeof createCanvas !== 'function') {
     return { buffer: null, usedTemplate: false, source: 'canvas-library-disabled' };
   }
-  const canvas = createCanvas(1200, 900);
-  const ctx = canvas.getContext('2d');
 
-  const { img: templateImg, source: templateSource } = await resolveTemplateImage(guildId);
-  const templateLoaded = !!templateImg;
+  try {
+    const canvas = createCanvas(1200, 900);
+    const ctx = canvas.getContext('2d');
 
-  if (templateLoaded) {
-    // 1. OFFICIAL PERMANENT TEMPLATE
-    ctx.drawImage(templateImg, 0, 0, 1200, 900);
+    // Enable best quality Skia rendering settings
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    if ('textRendering' in ctx) {
+      try { ctx.textRendering = 'optimizeLegibility'; } catch (_) {}
+    }
+    if ('patternQuality' in ctx) {
+      try { ctx.patternQuality = 'best'; } catch (_) {}
+    }
 
-    // Top-Right Serial ID
-    ctx.save();
-    ctx.fillStyle = '#38BDF8';
-    ctx.font = 'bold 14px "Courier New", Courier, monospace';
-    ctx.fillText(serialId, 1010, 36);
-    ctx.restore();
+    const { img: templateImg, source: templateSource } = await resolveTemplateImage(guildId);
+    const templateLoaded = !!templateImg;
 
-    // Rank Box below portrait
-    const rankBoxX = 54;
-    const rankBoxY = 687;
-    const rankBoxW = 348;
-    const rankBoxH = 46;
+    if (templateLoaded) {
+      // 1. OFFICIAL PERMANENT TEMPLATE
+      ctx.drawImage(templateImg, 0, 0, 1200, 900);
 
-    ctx.save();
-    ctx.fillStyle = '#080d19';
-    ctx.beginPath();
-    ctx.roundRect(rankBoxX, rankBoxY, rankBoxW, rankBoxH, 4);
-    ctx.fill();
-    ctx.strokeStyle = '#F59E0B';
-    ctx.lineWidth = 2;
-    ctx.stroke();
+      // Top-Right Serial ID
+      ctx.save();
+      ctx.fillStyle = '#38BDF8';
+      ctx.font = 'bold 14px "Nimbus Mono PS", "Liberation Mono", "Courier New", Courier, monospace';
+      ctx.fillText(serialId, 1010, 36);
+      ctx.restore();
 
-    ctx.fillStyle = '#FFFFFF';
-    ctx.font = '900 20px sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText(assignedRank.toUpperCase(), rankBoxX + rankBoxW / 2, rankBoxY + 31);
-    ctx.textAlign = 'left';
-    ctx.restore();
+      // Rank Box below portrait
+      const rankBoxX = 54;
+      const rankBoxY = 687;
+      const rankBoxW = 348;
+      const rankBoxH = 46;
 
-    // 5 Field Rows
-    const fieldX = 472;
-    const fieldValues = [
-      { val: fullName, textY: 358 },
-      { val: robloxUsername ? `@${robloxUsername}` : '', textY: 446 },
-      { val: robloxUserId || '', textY: 534 },
-      { val: gender || '', textY: 622 },
-      { val: assignedRank || '', textY: 710 },
-    ];
-
-    ctx.save();
-    ctx.fillStyle = '#FFFFFF';
-    ctx.font = 'bold 22px sans-serif';
-    fieldValues.forEach((f) => {
-      if (f.val) {
-        ctx.fillText(f.val, fieldX + 18, f.textY);
+      ctx.save();
+      ctx.fillStyle = '#080d19';
+      ctx.beginPath();
+      if (typeof ctx.roundRect === 'function') {
+        ctx.roundRect(rankBoxX, rankBoxY, rankBoxW, rankBoxH, 4);
+      } else {
+        ctx.rect(rankBoxX, rankBoxY, rankBoxW, rankBoxH);
       }
-    });
-    ctx.restore();
+      ctx.fill();
+      ctx.strokeStyle = '#F59E0B';
+      ctx.lineWidth = 2;
+      ctx.stroke();
 
-    // Portrait inside official frame
-    const photoX = 60;
-    const photoY = 324;
-    const photoW = 337;
-    const photoH = 344;
+      ctx.fillStyle = '#FFFFFF';
+      ctx.font = '900 20px "Liberation Sans", "Nimbus Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(assignedRank.toUpperCase(), rankBoxX + rankBoxW / 2, rankBoxY + 31);
+      ctx.textAlign = 'left';
+      ctx.restore();
 
-    if (avatarUrl && typeof loadImage === 'function') {
-      try {
-        const avatarImg = await loadImage(avatarUrl);
-        ctx.save();
-        ctx.beginPath();
-        ctx.rect(photoX, photoY, photoW, photoH);
-        ctx.clip();
-        ctx.drawImage(avatarImg, photoX, photoY, photoW, photoH);
-        ctx.restore();
-      } catch (err) {
-        console.warn('[UOI Bot] Could not load avatar image:', err.message);
+      // 5 Field Rows
+      const fieldX = 472;
+      const fieldValues = [
+        { val: fullName, textY: 358 },
+        { val: robloxUsername ? `@${robloxUsername}` : '', textY: 446 },
+        { val: robloxUserId || '', textY: 534 },
+        { val: gender || '', textY: 622 },
+        { val: assignedRank || '', textY: 710 },
+      ];
+
+      ctx.save();
+      ctx.fillStyle = '#FFFFFF';
+      ctx.font = 'bold 22px "Liberation Sans", "Nimbus Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+      fieldValues.forEach((f) => {
+        if (f.val) {
+          ctx.fillText(f.val, fieldX + 18, f.textY);
+        }
+      });
+      ctx.restore();
+
+      // Portrait inside official frame
+      const photoX = 60;
+      const photoY = 324;
+      const photoW = 337;
+      const photoH = 344;
+
+      if (avatarUrl) {
+        const avatarImg = await safeLoadImage(avatarUrl);
+        if (avatarImg) {
+          ctx.save();
+          ctx.beginPath();
+          ctx.rect(photoX, photoY, photoW, photoH);
+          ctx.clip();
+          ctx.drawImage(avatarImg, photoX, photoY, photoW, photoH);
+          ctx.restore();
+        }
+      }
+    } else {
+      // 2. FALLBACK DESIGN (Only if template image has not yet been set)
+      const bgGrad = ctx.createLinearGradient(0, 0, 1200, 900);
+      bgGrad.addColorStop(0, '#0a0f1d');
+      bgGrad.addColorStop(0.5, '#070b16');
+      bgGrad.addColorStop(1, '#04070e');
+      ctx.fillStyle = bgGrad;
+      ctx.fillRect(0, 0, 1200, 900);
+
+      ctx.strokeStyle = '#f59e0b';
+      ctx.lineWidth = 4;
+      ctx.strokeRect(18, 18, 1164, 864);
+
+      ctx.fillStyle = '#f59e0b';
+      ctx.font = 'bold 36px sans-serif';
+      ctx.fillText('UNION OF INDIANS', 160, 95);
+
+      ctx.fillStyle = '#38bdf8';
+      ctx.font = 'bold 16px monospace';
+      ctx.fillText(serialId, 895, 91);
+
+      const fields = [
+        { label: 'FULL CITIZEN NAME', value: fullName },
+        { label: 'ROBLOX USERNAME', value: robloxUsername ? `@${robloxUsername}` : 'UNLINKED' },
+        { label: 'ROBLOX USER ID', value: robloxUserId || 'N/A' },
+        { label: 'GENDER', value: gender || 'N/A' },
+        { label: 'RANK / ROLE', value: assignedRank || 'COMMUNITY MEMBER' },
+      ];
+
+      fields.forEach((f, idx) => {
+        const boxY = 260 + idx * 78;
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 19px sans-serif';
+        ctx.fillText(f.value, 485, boxY + 58);
+      });
+
+      if (avatarUrl) {
+        const avatarImg = await safeLoadImage(avatarUrl);
+        if (avatarImg) {
+          ctx.drawImage(avatarImg, 56, 260, 345, 380);
+        }
       }
     }
-  } else {
-    // 2. FALLBACK DESIGN (Only if template image has not yet been set)
-    const bgGrad = ctx.createLinearGradient(0, 0, 1200, 900);
-    bgGrad.addColorStop(0, '#0a0f1d');
-    bgGrad.addColorStop(0.5, '#070b16');
-    bgGrad.addColorStop(1, '#04070e');
-    ctx.fillStyle = bgGrad;
-    ctx.fillRect(0, 0, 1200, 900);
 
-    ctx.strokeStyle = '#f59e0b';
-    ctx.lineWidth = 4;
-    ctx.strokeRect(18, 18, 1164, 864);
-
-    ctx.fillStyle = '#f59e0b';
-    ctx.font = 'bold 36px sans-serif';
-    ctx.fillText('UNION OF INDIANS', 160, 95);
-
-    ctx.fillStyle = '#38bdf8';
-    ctx.font = 'bold 16px monospace';
-    ctx.fillText(serialId, 895, 91);
-
-    const fields = [
-      { label: 'FULL CITIZEN NAME', value: fullName },
-      { label: 'ROBLOX USERNAME', value: robloxUsername ? `@${robloxUsername}` : 'UNLINKED' },
-      { label: 'ROBLOX USER ID', value: robloxUserId || 'N/A' },
-      { label: 'GENDER', value: gender || 'N/A' },
-      { label: 'RANK / ROLE', value: assignedRank || 'COMMUNITY MEMBER' },
-    ];
-
-    fields.forEach((f, idx) => {
-      const boxY = 260 + idx * 78;
-      ctx.fillStyle = '#ffffff';
-      ctx.font = 'bold 19px sans-serif';
-      ctx.fillText(f.value, 485, boxY + 58);
-    });
-
-    if (avatarUrl && typeof loadImage === 'function') {
-      try {
-        const avatarImg = await loadImage(avatarUrl);
-        ctx.drawImage(avatarImg, 56, 260, 345, 380);
-      } catch (_) {}
+    let buffer = null;
+    if (typeof canvas.toBuffer === 'function') {
+      buffer = canvas.toBuffer('image/png');
+    } else if (typeof canvas.encode === 'function') {
+      buffer = await canvas.encode('png');
     }
+
+    return {
+      buffer,
+      usedTemplate: templateLoaded,
+      source: templateSource,
+    };
+  } catch (renderErr) {
+    console.error('[UOI Bot] Error during canvas rendering:', renderErr);
+    return {
+      buffer: null,
+      usedTemplate: false,
+      source: 'render-error: ' + renderErr.message,
+    };
   }
-
-  return {
-    buffer: canvas.toBuffer('image/png'),
-    usedTemplate: templateLoaded,
-    source: templateSource,
-  };
 }
 
 export const cardCommand = {
@@ -796,23 +937,16 @@ export const cardCommand = {
         const arrayBuffer = await resp.arrayBuffer();
         const buffer = Buffer.from(arrayBuffer);
 
-        // Safely extract dimensions via native loadImage or fallback pure-JS header parser
-        let testImgWidth = 1200;
-        let testImgHeight = 900;
-        if (typeof loadImage === 'function') {
-          try {
-            const testImg = await loadImage(buffer);
-            testImgWidth = testImg.width;
-            testImgHeight = testImg.height;
-          } catch (_) {
-            const dims = getImageDimensions(buffer);
-            testImgWidth = dims.width;
-            testImgHeight = dims.height;
-          }
-        } else {
-          const dims = getImageDimensions(buffer);
-          testImgWidth = dims.width;
-          testImgHeight = dims.height;
+        // Resilient dimension extraction (Pure JS parser for PNG/JPEG/GIF/WebP, native-free)
+        const dims = getImageDimensions(buffer);
+        let testImgWidth = dims.width || 1200;
+        let testImgHeight = dims.height || 900;
+
+        // Optionally refine with safeLoadImage if canvas is present
+        const testImg = await safeLoadImage(buffer);
+        if (testImg && testImg.width) {
+          testImgWidth = testImg.width;
+          testImgHeight = testImg.height;
         }
 
         ensureDirectories();
@@ -869,8 +1003,8 @@ export const cardCommand = {
     if (sub === 'view-template') {
       await interaction.deferReply({ ephemeral: true });
 
-      const { img, source } = await resolveTemplateImage(guildId);
-      if (!img) {
+      const { img, source, filePath } = await resolveTemplateImage(guildId);
+      if (!img && !filePath) {
         return interaction.editReply({
           content:
             '⚠️ **No permanent template found for this server!**\nUse `/card set-template` with your template image attached to upload one (1 template per server).',
@@ -878,20 +1012,27 @@ export const cardCommand = {
       }
 
       let fileBuffer = null;
-      if (guildId && fs.existsSync(path.join(TEMPLATES_DIR, `${guildId}.png`))) {
-        fileBuffer = fs.readFileSync(path.join(TEMPLATES_DIR, `${guildId}.png`));
-      } else {
+      if (filePath && fs.existsSync(filePath)) {
+        try { fileBuffer = fs.readFileSync(filePath); } catch (_) {}
+      }
+      if (!fileBuffer && guildId && fs.existsSync(path.join(TEMPLATES_DIR, `${guildId}.png`))) {
+        try { fileBuffer = fs.readFileSync(path.join(TEMPLATES_DIR, `${guildId}.png`)); } catch (_) {}
+      }
+      if (!fileBuffer) {
         for (const f of ['template.png', 'template.jpg', 'public/template.png']) {
           if (fs.existsSync(f)) {
-            fileBuffer = fs.readFileSync(f);
-            break;
+            try { fileBuffer = fs.readFileSync(f); break; } catch (_) {}
           }
         }
       }
 
+      const dims = fileBuffer ? getImageDimensions(fileBuffer) : { width: img?.width || 1200, height: img?.height || 900 };
+      const displayW = img?.width || dims.width;
+      const displayH = img?.height || dims.height;
+
       if (!fileBuffer) {
         return interaction.editReply({
-          content: `Active template loaded from: \`${source}\` (${img.width}×${img.height}px)`,
+          content: `Active template loaded from: \`${source || 'Configured Template'}\` (${displayW}×${displayH}px)`,
         });
       }
 
@@ -899,7 +1040,7 @@ export const cardCommand = {
       const embed = new EmbedBuilder()
         .setTitle('🖼️ Active Server Card Template')
         .setColor(0x3b82f6)
-        .setDescription(`Loaded template for **${interaction.guild ? interaction.guild.name : 'this server'}**:\n• Source: \`${source}\`\n• Resolution: **${img.width}×${img.height}px**`)
+        .setDescription(`Loaded template for **${interaction.guild ? interaction.guild.name : 'this server'}**:\n• Source: \`${source || filePath || 'Server Storage'}\`\n• Resolution: **${displayW}×${displayH}px**`)
         .setImage('attachment://active-template.png');
 
       return interaction.editReply({ embeds: [embed], files: [file] });

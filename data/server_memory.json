@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "lastUpdated": "2026-09-21T08:06:16.390Z",
+  "lastUpdated": "2026-09-21T09:51:18.020Z",
   "servers": {
     "1126909194826682408": {
       "guildId": "1126909194826682408",
@@ -9,7 +9,7 @@
       "ownerId": "1126905502387933345",
       "memberCount": 9,
       "firstSeen": "2026-09-21T08:06:07.797Z",
-      "lastSeen": "2026-09-21T08:06:07.797Z",
+      "lastSeen": "2026-09-21T09:51:18.020Z",
       "isCurrentlyPresent": true,
       "setup": {
         "isSetup": true,

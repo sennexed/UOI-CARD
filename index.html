@@ -222,6 +222,10 @@
           <div class="stat-val">node index.js</div>
         </div>
         <div class="stat-box">
+          <div class="stat-label">Canvas Engine</div>
+          <div class="stat-val" id="canvas-engine-stat" style="color: #10b981;">⚡ @napi-rs/canvas &bull; Skia Native</div>
+        </div>
+        <div class="stat-box">
           <div class="stat-label">Permanent Memory</div>
           <div class="stat-val" id="memory-stat" style="color: #38bdf8;">🧠 Active &bull; Persistent Vault</div>
         </div>
@@ -404,6 +408,18 @@
             if (countEl) countEl.textContent = `${mem.totalRememberedServers} Servers`;
             if (setupEl) setupEl.textContent = `${mem.activeSetups} Configured`;
             if (autoEl) autoEl.textContent = `${mem.autoConfiguredCount} Zero-Config`;
+
+            const canvasStatEl = document.getElementById('canvas-engine-stat');
+            if (canvasStatEl && data.canvasEngine) {
+              const eng = data.canvasEngine;
+              if (eng.available) {
+                canvasStatEl.textContent = `⚡ @napi-rs/canvas (${eng.features?.fontsLoaded || 49} fonts)`;
+                canvasStatEl.style.color = '#10b981';
+              } else {
+                canvasStatEl.textContent = '⚠️ Fallback Embed Mode';
+                canvasStatEl.style.color = '#f59e0b';
+              }
+            }
 
             if (listEl) {
               if (mem.servers && mem.servers.length > 0) {

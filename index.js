@@ -3,7 +3,7 @@ import { Client, GatewayIntentBits, REST, Routes } from 'discord.js';
 import http from 'http';
 import fs from 'fs';
 import path from 'path';
-import { cardCommand } from './commands/card.js';
+import { cardCommand, getCanvasEngineInfo } from './commands/card.js';
 import {
   syncGuildsMemory,
   recordServer,
@@ -28,6 +28,7 @@ const requestHandler = (req, res) => {
   ) {
     const memory = loadServerMemory();
     const serverList = Object.values(memory.servers || {});
+    const canvasInfo = getCanvasEngineInfo ? getCanvasEngineInfo() : { engine: 'unknown' };
     res.writeHead(200, { 'Content-Type': 'application/json' });
     return res.end(
       JSON.stringify({
@@ -35,6 +36,7 @@ const requestHandler = (req, res) => {
         service: 'Union of Indians (UOI) Discord Bot',
         botReady: !!(globalThis.__uoiBotClient && globalThis.__uoiBotClient.isReady()),
         uptimeSeconds: Math.floor(process.uptime()),
+        canvasEngine: canvasInfo,
         permanentMemory: {
           totalRememberedServers: serverList.length,
           activeSetups: serverList.filter((s) => s.setup?.isSetup).length,
