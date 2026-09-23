@@ -19,6 +19,24 @@
       },
       "name": "UOI LABORATORY",
       "guildId": "1126909194826682408"
+    },
+    "1467485915374162025": {
+      "isSetup": true,
+      "autoConfigured": true,
+      "staffChannelId": "1492521564858744853",
+      "staffChannelName": "💼-finance-staff-lobby",
+      "deliveryChannelId": null,
+      "deliveryChannelName": null,
+      "staffRoleId": null,
+      "staffRoleName": null,
+      "autoNickname": true,
+      "setupAt": "2026-09-23T08:28:48.777Z",
+      "setupBy": {
+        "discordId": "SYSTEM",
+        "discordTag": "Auto-Discovery"
+      },
+      "name": "Union of Indians",
+      "guildId": "1467485915374162025"
     }
   },
   "pendingRequests": {}

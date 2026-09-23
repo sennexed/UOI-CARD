@@ -305,6 +305,54 @@
         </div>
       </div>
 
+      <!-- Official Card Template Studio & Web Uploader -->
+      <div class="card" id="template-studio-card">
+        <div class="card-title">🖼️ Official Card Template Studio & Multi-Server Manager</div>
+        <div class="info-box">
+          <strong>1-Template-Per-Server Policy:</strong> Each Discord server has its own isolated official template slot (<code>templates/{guildId}.png</code>). Uploading a template automatically normalizes it to the official 1200×900 resolution with Skia graphic acceleration, ensuring pixel-perfect stamping for all future citizen cards.
+        </div>
+
+        <div style="margin-top: 14px; display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px;">
+          <!-- Template Preview Box -->
+          <div style="background: var(--bg-subtle); border-radius: 8px; padding: 14px; border: 1px solid rgba(255,255,255,0.05);">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+              <span style="font-size: 12px; font-weight: 600; color: #e2e8f0; text-transform: uppercase; letter-spacing: 0.5px;">Active Template Preview</span>
+              <span id="tpl-status-badge" style="font-size: 11px; padding: 2px 8px; border-radius: 4px; background: rgba(56,189,248,0.15); color: #38bdf8;">Standard 1200×900</span>
+            </div>
+            <div style="position: relative; overflow: hidden; border-radius: 6px; border: 1px solid #1e293b; background: #020617; aspect-ratio: 4/3; display: flex; align-items: center; justify-content: center;">
+              <img id="template-preview-img" src="/api/template" alt="Active Card Template" style="width: 100%; height: 100%; object-fit: contain;" onerror="this.src='/api/template'" />
+            </div>
+            <div style="display: flex; gap: 8px; margin-top: 10px;">
+              <a href="/api/template" download="uoi_card_template.png" style="flex: 1; text-align: center; text-decoration: none; font-size: 12px; background: #1e293b; color: #38bdf8; padding: 8px 12px; border-radius: 6px; font-weight: 600; border: 1px solid rgba(56,189,248,0.3);">⬇️ Download Template</a>
+              <button id="reset-template-btn" onclick="resetServerTemplate()" style="background: rgba(239,68,68,0.15); color: #f87171; border: 1px solid rgba(239,68,68,0.3); padding: 8px 12px; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer;">Revert Default</button>
+            </div>
+          </div>
+
+          <!-- Web Upload Dropzone & Grid Guide -->
+          <div style="display: flex; flex-direction: column; justify-content: space-between; gap: 12px;">
+            <!-- Dropzone -->
+            <div id="dropzone" onclick="document.getElementById('tpl-file-input').click()" style="border: 2px dashed rgba(56,189,248,0.35); border-radius: 8px; padding: 20px; text-align: center; background: rgba(15,23,42,0.6); cursor: pointer; transition: all 0.2s ease;">
+              <input type="file" id="tpl-file-input" accept="image/png,image/jpeg,image/webp" style="display: none;" onchange="handleFileUpload(event)" />
+              <div style="font-size: 28px; margin-bottom: 6px;">📤</div>
+              <div style="font-size: 13px; font-weight: 600; color: #f8fafc;">Click or Drag & Drop to Upload Template</div>
+              <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">PNG, JPG, or WebP &bull; Auto-scaled & normalized to 1200×900 px</div>
+              <div id="upload-status" style="font-size: 12px; margin-top: 8px; font-weight: 600; display: none;"></div>
+            </div>
+
+            <!-- Coordinate Guide Card -->
+            <div style="background: var(--bg-subtle); border-radius: 8px; padding: 12px; font-size: 12px; border: 1px solid rgba(255,255,255,0.05);">
+              <div style="font-weight: 600; color: #f59e0b; margin-bottom: 6px;">📐 Stamping Alignment Blueprint</div>
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; color: #94a3b8; font-family: monospace; font-size: 11px;">
+                <div>&bull; Portrait: 60, 324 (337×344)</div>
+                <div>&bull; Rank Box: 54, 687 (348×46)</div>
+                <div>&bull; Details X: 472 (5 Rows)</div>
+                <div>&bull; Top Serial: 1010, 36</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- Commands Reference -->
       <div class="card">
         <div class="card-title">📜 Integrated Slash Commands</div>
@@ -318,6 +366,21 @@
           </thead>
           <tbody>
             <tr>
+              <td><code>/card set-template</code></td>
+              <td>Upload or update this server's official template (attachment or URL). Auto-normalized to 1200×900 PNG.</td>
+              <td>Administrator / Staff</td>
+            </tr>
+            <tr>
+              <td><code>/card view-template</code></td>
+              <td>Inspect active card template, resolution, and stamping blueprint for this server.</td>
+              <td>Everyone</td>
+            </tr>
+            <tr>
+              <td><code>/card reset-template</code></td>
+              <td>Removes custom template and reverts to the official standard UOI template.</td>
+              <td>Administrator / Staff</td>
+            </tr>
+            <tr>
               <td><code>/card setup</code></td>
               <td>Configures staff review channel, delivery channel, and reviewer role. Unlocks server commands.</td>
               <td>Administrator</td>
@@ -330,6 +393,11 @@
             <tr>
               <td><code>/card show [target]</code></td>
               <td>Retrieves and displays a registered citizen card from the central database.</td>
+              <td>Everyone</td>
+            </tr>
+            <tr>
+              <td><code>/card whois [citizen]</code></td>
+              <td>Auto-detects linked Roblox account, 3D avatar headshot, numerical ID, and verification dossier.</td>
               <td>Everyone</td>
             </tr>
             <tr>
@@ -364,6 +432,46 @@
             </tr>
           </tbody>
         </table>
+      </div>
+
+      <!-- Roblox Auto-Detection & Identity Dossier Engine -->
+      <div class="card" style="border: 1px solid rgba(56, 189, 248, 0.35);">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 8px;">
+          <div class="card-title" style="margin-bottom: 0;">🤖 Roblox Account Auto-Detection Engine</div>
+          <span style="font-size: 11px; padding: 3px 8px; border-radius: 4px; background: rgba(56,189,248,0.2); color: #38bdf8; font-weight: 600;">
+            ⚡ Active Multi-Tier Pipeline
+          </span>
+        </div>
+        <p style="color: var(--text-muted); font-size: 13px; line-height: 1.5; margin-bottom: 16px;">
+          Citizens running <code>/card generate</code> no longer need to type their Roblox username. The system automatically inspects <strong>Bloxlink API</strong> bindings, <strong>RoVer Registry</strong> links, historical UOI database records, and server nickname patterns (e.g., <code>[Rank] Username</code>) to resolve their official Roblox identity and high-res 3D avatar headshot.
+        </p>
+
+        <!-- Live Tester Sandbox -->
+        <div style="background: rgba(15,23,42,0.6); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 16px;">
+          <div style="font-weight: 600; font-size: 13px; margin-bottom: 10px; color: #f8fafc;">
+            🔬 Live Auto-Detection Sandbox
+          </div>
+          <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+            <input
+              id="roblox-test-query"
+              type="text"
+              placeholder="e.g. Builderman, [GEN] Stickmasterluke, or User ID"
+              style="flex: 1; min-width: 240px; padding: 10px 14px; background: rgba(0,0,0,0.4); border: 1px solid rgba(255,255,255,0.15); border-radius: 6px; color: #f8fafc; font-size: 13px;"
+              onkeydown="if (event.key === 'Enter') runRobloxDetectionTest()"
+            />
+            <button
+              class="btn btn-primary"
+              style="padding: 10px 20px; font-size: 13px;"
+              onclick="runRobloxDetectionTest()"
+            >
+              🚀 Test Detection
+            </button>
+          </div>
+
+          <div id="roblox-test-result" style="display: none; margin-top: 14px; padding: 12px; border-radius: 6px; background: rgba(30,41,59,0.7); border: 1px solid rgba(56,189,248,0.2);">
+            <!-- Live Result Populated via JS -->
+          </div>
+        </div>
       </div>
 
       <!-- Workflow Overview -->
@@ -457,8 +565,201 @@
           .replace(/"/g, '&quot;');
       }
 
+      // Template Management Scripts
+      async function updateTemplateStatus() {
+        try {
+          const res = await fetch('/api/template/info');
+          if (!res.ok) return;
+          const data = await res.json();
+          const badge = document.getElementById('tpl-status-badge');
+          if (badge && data.status) {
+            if (data.status.hasCustomTemplate) {
+              const kb = Math.round((data.status.fileSizeBytes || 0) / 1024);
+              badge.textContent = `🟢 Custom Server Template (${kb} KB)`;
+              badge.style.background = 'rgba(16,185,129,0.2)';
+              badge.style.color = '#34d399';
+            } else {
+              badge.textContent = '🔵 Standard UOI Default';
+              badge.style.background = 'rgba(56,189,248,0.15)';
+              badge.style.color = '#38bdf8';
+            }
+          }
+        } catch (_) {}
+      }
+
+      async function handleFileUpload(event) {
+        const file = event.target?.files?.[0];
+        if (!file) return;
+        uploadTemplateFile(file);
+      }
+
+      function uploadTemplateFile(file) {
+        const statusEl = document.getElementById('upload-status');
+        if (statusEl) {
+          statusEl.style.display = 'block';
+          statusEl.style.color = '#38bdf8';
+          statusEl.textContent = '⏳ Processing and normalizing template to 1200×900...';
+        }
+
+        const reader = new FileReader();
+        reader.onload = async (e) => {
+          try {
+            const base64Data = e.target.result;
+            const res = await fetch('/api/template/upload', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ imageBase64: base64Data }),
+            });
+
+            const data = await res.json();
+            if (res.ok && data.success) {
+              if (statusEl) {
+                statusEl.style.color = '#10b981';
+                statusEl.textContent = `✅ Template verified & saved (${data.resolution} px)!`;
+              }
+              const img = document.getElementById('template-preview-img');
+              if (img) img.src = `/api/template?t=${Date.now()}`;
+              updateTemplateStatus();
+            } else {
+              if (statusEl) {
+                statusEl.style.color = '#ef4444';
+                statusEl.textContent = `❌ ${data.error || 'Upload failed'}`;
+              }
+            }
+          } catch (err) {
+            if (statusEl) {
+              statusEl.style.color = '#ef4444';
+              statusEl.textContent = `❌ Error: ${err.message}`;
+            }
+          }
+        };
+        reader.readAsDataURL(file);
+      }
+
+      async function resetServerTemplate() {
+        if (!confirm('Revert card template back to the official standard UOI template?')) return;
+        const statusEl = document.getElementById('upload-status');
+        try {
+          const res = await fetch('/api/template/reset', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({}),
+          });
+          const data = await res.json();
+          if (statusEl) {
+            statusEl.style.display = 'block';
+            statusEl.style.color = '#38bdf8';
+            statusEl.textContent = '🔄 Template reverted to standard default.';
+          }
+          const img = document.getElementById('template-preview-img');
+          if (img) img.src = `/api/template?t=${Date.now()}`;
+          updateTemplateStatus();
+        } catch (err) {
+          if (statusEl) {
+            statusEl.style.display = 'block';
+            statusEl.style.color = '#ef4444';
+            statusEl.textContent = `❌ ${err.message}`;
+          }
+        }
+      }
+
+      // Drag and drop handlers
+      const dropzone = document.getElementById('dropzone');
+      if (dropzone) {
+        ['dragenter', 'dragover'].forEach((eventName) => {
+          dropzone.addEventListener(eventName, (e) => {
+            e.preventDefault();
+            dropzone.style.borderColor = '#38bdf8';
+            dropzone.style.background = 'rgba(56,189,248,0.1)';
+          });
+        });
+        ['dragleave', 'drop'].forEach((eventName) => {
+          dropzone.addEventListener(eventName, (e) => {
+            e.preventDefault();
+            dropzone.style.borderColor = 'rgba(56,189,248,0.35)';
+            dropzone.style.background = 'rgba(15,23,42,0.6)';
+          });
+        });
+        dropzone.addEventListener('drop', (e) => {
+          const dt = e.dataTransfer;
+          const files = dt.files;
+          if (files && files.length > 0) {
+            uploadTemplateFile(files[0]);
+          }
+        });
+      }
+
+      // Live Roblox Auto-Detection Tester
+      async function runRobloxDetectionTest() {
+        const queryInput = document.getElementById('roblox-test-query');
+        const resultEl = document.getElementById('roblox-test-result');
+        if (!queryInput || !resultEl) return;
+
+        const val = queryInput.value.trim();
+        if (!val) {
+          resultEl.style.display = 'block';
+          resultEl.innerHTML = '<span style="color: #f87171;">⚠️ Please enter a Roblox username, user ID, or nickname format (e.g. [GEN] Builderman).</span>';
+          return;
+        }
+
+        resultEl.style.display = 'block';
+        resultEl.innerHTML = '<span style="color: #38bdf8;">⏳ Running multi-tier Roblox detection pipeline...</span>';
+
+        try {
+          const res = await fetch(`/api/roblox/detect?q=${encodeURIComponent(val)}`);
+          const data = await res.json();
+
+          if (res.ok && data.success && data.result) {
+            const r = data.result;
+            if (r.detected) {
+              resultEl.innerHTML = `
+                <div style="display: flex; gap: 16px; align-items: center; flex-wrap: wrap;">
+                  ${r.avatarUrl ? `<img src="${escapeHtml(r.avatarUrl)}" alt="Avatar" style="width: 72px; height: 72px; border-radius: 8px; border: 2px solid #38bdf8; background: #0f172a; object-fit: cover;" />` : ''}
+                  <div style="flex: 1; min-width: 200px;">
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                      <strong style="font-size: 15px; color: #f8fafc;">${escapeHtml(r.displayName)}</strong>
+                      <span style="color: var(--text-muted); font-size: 13px;">(@${escapeHtml(r.username)})</span>
+                      ${r.hasVerifiedBadge ? '<span style="background: rgba(56,189,248,0.2); color: #38bdf8; font-size: 11px; padding: 1px 6px; border-radius: 4px; font-weight: bold;">☑️ Verified</span>' : ''}
+                    </div>
+                    <div style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">
+                      Roblox User ID: <code style="color: #38bdf8; background: rgba(56,189,248,0.1); padding: 1px 6px; border-radius: 4px;">${escapeHtml(r.userId || 'N/A')}</code>
+                    </div>
+                    <div style="font-size: 12px; margin-top: 4px; display: flex; gap: 8px; align-items: center;">
+                      <span style="background: rgba(16,185,129,0.2); color: #34d399; padding: 2px 6px; border-radius: 4px;">
+                        🎯 ${escapeHtml(r.method || 'Auto-Detected')}
+                      </span>
+                      <span style="color: var(--text-muted); font-size: 11px;">${escapeHtml(r.confidence || '')}</span>
+                    </div>
+                  </div>
+                  <div>
+                    <a href="${escapeHtml(r.profileUrl || `https://www.roblox.com/users/${r.userId}/profile`)}" target="_blank" rel="noopener noreferrer" class="btn" style="background: rgba(255,255,255,0.1); color: #f8fafc; font-size: 12px; text-decoration: none; padding: 6px 12px; border-radius: 6px;">
+                      View Profile ↗
+                    </a>
+                  </div>
+                </div>
+              `;
+            } else {
+              resultEl.innerHTML = `
+                <div style="color: #f87171;">
+                  <strong>❌ No Verified Roblox Account Found</strong>
+                  <div style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">
+                    "${escapeHtml(val)}" does not correspond to an active, unbanned Roblox user or recognized name pattern.
+                  </div>
+                </div>
+              `;
+            }
+          } else {
+            resultEl.innerHTML = `<span style="color: #f87171;">❌ ${escapeHtml(data.error || 'Detection failed')}</span>`;
+          }
+        } catch (err) {
+          resultEl.innerHTML = `<span style="color: #f87171;">❌ Request error: ${escapeHtml(err.message)}</span>`;
+        }
+      }
+
       updateMemoryStatus();
+      updateTemplateStatus();
       setInterval(updateMemoryStatus, 5000);
+      setInterval(updateTemplateStatus, 10000);
     </script>
   </body>
 </html>

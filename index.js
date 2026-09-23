@@ -12,13 +12,193 @@ import {
   loadServerMemory,
   getAllServerRecords,
 } from './memory.js';
+import {
+  getServerTemplateStatus,
+  resolveTemplateImage,
+  processAndNormalizeTemplate,
+  saveServerTemplate,
+  deleteServerTemplate,
+  fetchImageBytes,
+  generateAndSaveDefaultTemplate,
+  TEMPLATES_DIR,
+} from './template_manager.js';
+import {
+  autoDetectRobloxUser,
+  fetchRobloxUserData,
+  extractRobloxCandidates,
+} from './roblox_detector.js';
 
 // 1. Lightweight HTTP Healthcheck & Status server for Cloud Run / Pterodactyl / WispByte
 const DEFAULT_PORT = 3000;
 const CLOUD_RUN_PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : null;
 
-const requestHandler = (req, res) => {
-  const urlPath = req.url ? req.url.split('?')[0] : '/';
+const requestHandler = async (req, res) => {
+  let parsedUrl;
+  try {
+    parsedUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+  } catch (_) {
+    parsedUrl = { pathname: '/', searchParams: new URLSearchParams() };
+  }
+  const urlPath = parsedUrl.pathname;
+  const guildId = parsedUrl.searchParams.get('guildId') || parsedUrl.searchParams.get('server');
+
+  // CORS headers for local dashboard interactions
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+  if (req.method === 'OPTIONS') {
+    res.writeHead(204);
+    return res.end();
+  }
+
+  // API: Get Template Image (Serves binary PNG for previewing)
+  if (urlPath === '/api/template') {
+    try {
+      const resolved = await resolveTemplateImage(guildId);
+      let fileBuf = null;
+      if (resolved.filePath && fs.existsSync(resolved.filePath)) {
+        fileBuf = fs.readFileSync(resolved.filePath);
+      }
+      if (!fileBuf) {
+        const def = await generateAndSaveDefaultTemplate();
+        if (def && def.buffer) fileBuf = def.buffer;
+      }
+      if (fileBuf) {
+        res.writeHead(200, {
+          'Content-Type': 'image/png',
+          'Content-Length': fileBuf.length,
+          'Cache-Control': 'no-cache',
+        });
+        return res.end(fileBuf);
+      }
+    } catch (err) {
+      console.warn('[UOI Bot] Error serving template image:', err.message);
+    }
+    res.writeHead(404, { 'Content-Type': 'text/plain' });
+    return res.end('Template not found');
+  }
+
+  // API: Get Template Status & Blueprint Info
+  if (urlPath === '/api/template/info') {
+    const status = getServerTemplateStatus(guildId);
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    return res.end(
+      JSON.stringify({
+        guildId: guildId || null,
+        status,
+        standardResolution: '1200x900',
+        alignmentGrid: {
+          photoFrame: { x: 60, y: 324, w: 337, h: 344 },
+          rankBox: { x: 54, y: 687, w: 348, h: 46 },
+          fieldX: 472,
+          rowY: [358, 446, 534, 622, 710],
+          serialId: { x: 1010, y: 36 },
+        },
+      })
+    );
+  }
+
+  // API: Upload template from Web Dashboard
+  if (urlPath === '/api/template/upload' && req.method === 'POST') {
+    const chunks = [];
+    req.on('data', (chunk) => chunks.push(chunk));
+    req.on('end', async () => {
+      try {
+        const rawBody = Buffer.concat(chunks).toString('utf8');
+        const json = JSON.parse(rawBody);
+        const targetGuildId = json.guildId || guildId;
+        const inputData = json.imageBase64 || json.url;
+
+        if (!inputData) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          return res.end(JSON.stringify({ error: 'No imageBase64 or url provided.' }));
+        }
+
+        const { buffer: rawBuffer } = await fetchImageBytes(inputData, 15000);
+        const normalized = await processAndNormalizeTemplate(rawBuffer);
+
+        saveServerTemplate(targetGuildId, normalized.buffer, {
+          width: normalized.width,
+          height: normalized.height,
+          originalWidth: normalized.originalWidth,
+          originalHeight: normalized.originalHeight,
+        });
+
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        return res.end(
+          JSON.stringify({
+            success: true,
+            message: 'Template successfully uploaded, normalized, and saved.',
+            guildId: targetGuildId,
+            resolution: `${normalized.width}x${normalized.height}`,
+            originalResolution: `${normalized.originalWidth}x${normalized.originalHeight}`,
+            fileSizeBytes: normalized.buffer.length,
+          })
+        );
+      } catch (err) {
+        console.error('[UOI Bot] Dashboard template upload error:', err);
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({ error: err.message }));
+      }
+    });
+    return;
+  }
+
+  // API: Reset template back to default
+  if (urlPath === '/api/template/reset' && req.method === 'POST') {
+    const chunks = [];
+    req.on('data', (chunk) => chunks.push(chunk));
+    req.on('end', async () => {
+      try {
+        const rawBody = Buffer.concat(chunks).toString('utf8');
+        const json = JSON.parse(rawBody || '{}');
+        const targetGuildId = json.guildId || guildId;
+
+        deleteServerTemplate(targetGuildId);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        return res.end(
+          JSON.stringify({
+            success: true,
+            message: 'Server template removed, reverted to standard default template.',
+            guildId: targetGuildId,
+          })
+        );
+      } catch (err) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({ error: err.message }));
+      }
+    });
+    return;
+  }
+
+  // API: Roblox auto-detection & lookup tester
+  if (urlPath === '/api/roblox/detect') {
+    const query = parsedUrl.searchParams.get('q') || parsedUrl.searchParams.get('query');
+    if (!query) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ error: 'Missing query parameter "q"' }));
+    }
+
+    try {
+      const mockMember = {
+        nickname: query,
+        displayName: query,
+        user: { username: query },
+      };
+      const result = await autoDetectRobloxUser({
+        member: mockMember,
+        manualQuery: query,
+      });
+
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ success: true, result }));
+    } catch (err) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ error: err.message }));
+    }
+  }
+
   if (
     urlPath === '/api/health' ||
     urlPath === '/health' ||

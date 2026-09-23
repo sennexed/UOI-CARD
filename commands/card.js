@@ -22,6 +22,23 @@ import {
   getServerRecord,
   getAllServerRecords,
 } from '../memory.js';
+import {
+  TEMPLATES_DIR,
+  ensureTemplateDirectories,
+  fetchImageBytes,
+  processAndNormalizeTemplate,
+  saveServerTemplate,
+  deleteServerTemplate,
+  resolveTemplateImage,
+  getServerTemplateStatus,
+  generateAndSaveDefaultTemplate,
+  safeDecodeImage,
+} from '../template_manager.js';
+import {
+  autoDetectRobloxUser,
+  fetchRobloxUserData,
+  extractRobloxCandidates,
+} from '../roblox_detector.js';
 
 // High-Performance Native Canvas Engine (@napi-rs/canvas backed by Skia)
 let createCanvas = null;
@@ -188,7 +205,6 @@ function getImageDimensions(buffer) {
 // PERSISTENT DATABASE & TEMPLATE MANAGEMENT
 // ========================================================
 const DATA_DIR = path.join(process.cwd(), 'data');
-const TEMPLATES_DIR = path.join(process.cwd(), 'templates');
 const DB_FILE = path.join(DATA_DIR, 'cards.json');
 
 function ensureDirectories() {
@@ -273,124 +289,9 @@ function saveDatabase(db) {
   } catch (_) {}
 }
 
-// Helper: Resolve Roblox User info and Avatar URL
-async function fetchRobloxUserData(query) {
-  try {
-    let userId = null;
-    let username = null;
-    let displayName = null;
+// Roblox Account Resolution & Multi-Tier Auto-Detection are imported directly from ../roblox_detector.js
 
-    if (/^\d+$/.test(query.trim())) {
-      userId = parseInt(query.trim(), 10);
-      try {
-        const uResp = await fetch(`https://users.roblox.com/v1/users/${userId}`);
-        if (uResp.ok) {
-          const uJson = await uResp.json();
-          username = uJson.name;
-          displayName = uJson.displayName;
-        }
-      } catch (_) {}
-    } else {
-      const cleanName = query.trim().replace(/^@/, '');
-      const searchResp = await fetch('https://users.roblox.com/v1/usernames/users', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ usernames: [cleanName], excludeBannedUsers: false }),
-      });
-      if (searchResp.ok) {
-        const sJson = await searchResp.json();
-        const match = sJson.data?.[0];
-        if (match) {
-          userId = match.id;
-          username = match.name;
-          displayName = match.displayName;
-        }
-      }
-    }
-
-    if (!userId) {
-      return { userId: null, username: query, avatarUrl: null };
-    }
-
-    const thumbResp = await fetch(
-      `https://thumbnails.roblox.com/v1/users/avatar?userIds=${userId}&size=720x720&format=Png&isCircular=false`
-    );
-    let avatarUrl = null;
-    if (thumbResp.ok) {
-      const tJson = await thumbResp.json();
-      avatarUrl = tJson.data?.[0]?.imageUrl || null;
-    }
-
-    return {
-      userId: String(userId),
-      username: username || query,
-      displayName: displayName || username || query,
-      avatarUrl,
-    };
-  } catch (err) {
-    console.warn('[UOI Bot] Roblox user fetch error:', err.message);
-    return { userId: null, username: query, avatarUrl: null };
-  }
-}
-
-// Helper: Find or download the active template (strictly 1 template per server)
-async function resolveTemplateImage(guildId) {
-  ensureDirectories();
-
-  // 1. Server-specific template check (1 template per server)
-  if (guildId) {
-    const serverFiles = [
-      path.join(TEMPLATES_DIR, `${guildId}.png`),
-      path.join(TEMPLATES_DIR, `${guildId}.jpg`),
-      path.join(TEMPLATES_DIR, `${guildId}.jpeg`),
-    ];
-    for (const f of serverFiles) {
-      if (fs.existsSync(f)) {
-        const img = await safeLoadImage(f);
-        if (img) return { img, source: `Server Template (${guildId})`, filePath: f };
-      }
-    }
-  }
-
-  // 2. Global fallback candidates
-  const candidateFiles = [
-    'template.png',
-    'template.jpg',
-    'template.jpeg',
-    './template.png',
-    './template.jpg',
-    'public/template.png',
-    'public/template.jpg',
-    path.join(TEMPLATES_DIR, 'default.png'),
-  ];
-
-  for (const filename of candidateFiles) {
-    if (fs.existsSync(filename)) {
-      const img = await safeLoadImage(filename);
-      if (img) return { img, source: filename, filePath: filename };
-    }
-  }
-
-  // 3. Environment URL check
-  const envUrl = process.env.TEMPLATE_URL || process.env.CARD_TEMPLATE_URL;
-  if (envUrl) {
-    try {
-      console.log(`[UOI Bot] Downloading template from TEMPLATE_URL: ${envUrl}`);
-      const resp = await fetch(envUrl);
-      if (resp.ok) {
-        const arrayBuffer = await resp.arrayBuffer();
-        const buffer = Buffer.from(arrayBuffer);
-        fs.writeFileSync('template.png', buffer);
-        const img = await safeLoadImage(buffer);
-        if (img) return { img, source: 'TEMPLATE_URL (saved as template.png)', filePath: 'template.png' };
-      }
-    } catch (err) {
-      console.warn('[UOI Bot] Failed to fetch TEMPLATE_URL:', err.message);
-    }
-  }
-
-  return { img: null, source: null, filePath: null };
-}
+// resolveTemplateImage is imported directly from ../template_manager.js with 1-per-server isolation and auto-default generation
 
 // Helper: Render official 1200x900 UOI Citizen ID Card
 async function renderCardImage({
@@ -599,14 +500,29 @@ export const cardCommand = {
             .setDescription('Automatically update member nickname to "Name [Serial]" upon approval (Default: True)')
             .setRequired(false)
         )
+        .addStringOption((opt) =>
+          opt
+            .setName('bloxlink_api_key')
+            .setDescription('Bloxlink API Key for instant 100% cryptographic Roblox verification (Optional)')
+            .setRequired(false)
+        )
+        .addStringOption((opt) =>
+          opt
+            .setName('rover_api_key')
+            .setDescription('RoVer API Key for instant 100% cryptographic Roblox verification (Optional)')
+            .setRequired(false)
+        )
     )
-    // 1. /card generate (Routes to staff review)
+    // 1. /card generate (Routes to staff review with Roblox Auto-Detection)
     .addSubcommand((sub) =>
       sub
         .setName('generate')
-        .setDescription('Submit application for official UOI ID card (Routes to Staff Review Queue)')
+        .setDescription('Submit application for official UOI ID card (Auto-detects Roblox account!)')
         .addStringOption((opt) =>
-          opt.setName('roblox').setDescription('Roblox Username or numerical ID').setRequired(true)
+          opt
+            .setName('roblox')
+            .setDescription('Roblox Username/ID (Leave blank to AUTO-DETECT from Bloxlink/RoVer/Nickname!)')
+            .setRequired(false)
         )
         .addStringOption((opt) =>
           opt.setName('fullname').setDescription('Full Citizen Name').setRequired(true)
@@ -621,7 +537,19 @@ export const cardCommand = {
           opt.setName('citizen').setDescription('Target member (leave empty to apply for yourself)')
         )
     )
-    // 2. /card show (NEW: Pulls card of user from database)
+    // 2. /card whois (Roblox Auto-Detection & Identity Dossier)
+    .addSubcommand((sub) =>
+      sub
+        .setName('whois')
+        .setDescription('Auto-detect and inspect linked Roblox account, 3D avatar headshot, and verified identity')
+        .addUserOption((opt) =>
+          opt.setName('citizen').setDescription('Target member to inspect (leave empty to check yourself)')
+        )
+        .addStringOption((opt) =>
+          opt.setName('roblox').setDescription('Or manually query a specific Roblox username or user ID')
+        )
+    )
+    // 3. /card show (NEW: Pulls card of user from database)
     .addSubcommand((sub) =>
       sub
         .setName('show')
@@ -636,10 +564,13 @@ export const cardCommand = {
         .setName('set-template')
         .setDescription('Upload or update this server\'s official card template (1 per server)')
         .addAttachmentOption((opt) =>
-          opt.setName('image').setDescription('Attach the official template image (PNG or JPG)')
+          opt.setName('image').setDescription('Attach the official template image (PNG, JPG, or WebP)')
         )
         .addStringOption((opt) =>
-          opt.setName('url').setDescription('Or paste a direct image URL (Discord CDN, Imgur, etc.)')
+          opt.setName('url').setDescription('Or paste a direct image URL (Discord CDN, Imgur, Drive, etc.)')
+        )
+        .addBooleanOption((opt) =>
+          opt.setName('reset').setDescription('Set to True to remove custom template and revert to official default')
         )
     )
     // 4. /card view-template
@@ -647,6 +578,12 @@ export const cardCommand = {
       sub
         .setName('view-template')
         .setDescription('View the current active card template for this server')
+    )
+    // 5. /card reset-template
+    .addSubcommand((sub) =>
+      sub
+        .setName('reset-template')
+        .setDescription('Reset this server\'s card template back to the official default template')
     )
     // 5. /card verify [serial_id]
     .addSubcommand((sub) =>
@@ -785,6 +722,8 @@ export const cardCommand = {
       const deliveryChannel = interaction.options.getChannel('delivery_channel');
       const staffRole = interaction.options.getRole('staff_role');
       const autoNickname = interaction.options.getBoolean('auto_nickname') ?? true;
+      const bloxlinkApiKey = interaction.options.getString('bloxlink_api_key');
+      const roverApiKey = interaction.options.getString('rover_api_key');
 
       const db = loadDatabase();
       db.guilds = db.guilds || {};
@@ -798,6 +737,8 @@ export const cardCommand = {
         staffRoleId: staffRole ? staffRole.id : null,
         staffRoleName: staffRole ? staffRole.name : null,
         autoNickname,
+        bloxlinkApiKey: bloxlinkApiKey ? bloxlinkApiKey.trim() : (db.guilds[guildId]?.bloxlinkApiKey || null),
+        roverApiKey: roverApiKey ? roverApiKey.trim() : (db.guilds[guildId]?.roverApiKey || null),
         setupAt: new Date().toISOString(),
         setupBy: {
           discordId: interaction.user.id,
@@ -909,90 +850,98 @@ export const cardCommand = {
     if (sub === 'set-template') {
       await interaction.deferReply({ ephemeral: false });
 
-      // Check permission: ManageGuild or Administrator
-      if (interaction.member && !interaction.member.permissions.has(PermissionFlagsBits.ManageGuild)) {
+      const db = loadDatabase();
+      const guildConfig = db.guilds?.[guildId];
+
+      // Robust permission validation: Server Owner, Administrator, ManageGuild, or Configured Staff Role
+      const isGuildOwner = interaction.guild?.ownerId === interaction.user?.id;
+      const hasAdmin = interaction.memberPermissions?.has(PermissionFlagsBits.Administrator);
+      const hasManage = interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild);
+      const hasStaffRole = guildConfig?.staffRoleId && interaction.member?.roles?.cache?.has(guildConfig.staffRoleId);
+
+      if (!isGuildOwner && !hasAdmin && !hasManage && !hasStaffRole) {
         return interaction.editReply({
-          content: '❌ **Permission Denied:** Only server administrators or members with `Manage Server` can set this server\'s official card template.',
+          content:
+            '❌ **Permission Denied:** Only server administrators, the server owner, members with `Manage Server`, or members with the authorized staff role can set this server\'s official card template.',
         });
       }
 
-      const attachment = interaction.options.getAttachment('image');
-      const urlInput = interaction.options.getString('url');
-      const downloadUrl = attachment ? attachment.url : urlInput ? urlInput.trim() : null;
+      // Check if user requested template reset
+      const resetRequested = interaction.options.getBoolean('reset');
+      if (resetRequested) {
+        deleteServerTemplate(guildId);
+        const embed = new EmbedBuilder()
+          .setTitle('🔄 Server Template Reverted')
+          .setColor(0x38bdf8)
+          .setDescription(
+            `Successfully removed the custom template for **${interaction.guild ? interaction.guild.name : 'this server'}**.\n\n` +
+            `This server is now using the **Official Standard UOI Template**.\n` +
+            `You can upload a custom template at any time with \`/card set-template\`!`
+          )
+          .setFooter({ text: 'Union of Indians Registry • Template Management Engine' })
+          .setTimestamp();
+        return interaction.editReply({ embeds: [embed] });
+      }
 
-      if (!downloadUrl) {
+      const attachment = interaction.options.getAttachment('image') || interaction.attachments?.first();
+      const urlInput = interaction.options.getString('url');
+      const targetSource = attachment || (urlInput ? urlInput.trim() : null);
+
+      if (!targetSource) {
         return interaction.editReply({
-          content: '❌ **Please attach an image** or provide a direct image `url` when running `/card set-template`.',
+          content:
+            '❌ **Please attach an image** or provide a direct image `url` when running `/card set-template`.\n' +
+            '*(Tip: You can attach a PNG, JPG, or WebP file, or use `/card set-template reset:True` to revert to default)*',
         });
       }
 
       try {
-        const resp = await fetch(downloadUrl);
-        if (!resp.ok) {
-          return interaction.editReply({
-            content: `❌ Could not download image from the provided source (HTTP ${resp.status}).`,
-          });
-        }
+        // 1. Download image bytes with automatic CDN fallbacks, User-Agent, and HTML rejection
+        const { buffer: rawBuffer } = await fetchImageBytes(targetSource, 15000);
 
-        const arrayBuffer = await resp.arrayBuffer();
-        const buffer = Buffer.from(arrayBuffer);
+        // 2. Validate decodability and normalize to standard 1200x900 PNG
+        const normalized = await processAndNormalizeTemplate(rawBuffer);
 
-        // Resilient dimension extraction (Pure JS parser for PNG/JPEG/GIF/WebP, native-free)
-        const dims = getImageDimensions(buffer);
-        let testImgWidth = dims.width || 1200;
-        let testImgHeight = dims.height || 900;
-
-        // Optionally refine with safeLoadImage if canvas is present
-        const testImg = await safeLoadImage(buffer);
-        if (testImg && testImg.width) {
-          testImgWidth = testImg.width;
-          testImgHeight = testImg.height;
-        }
-
-        ensureDirectories();
-
-        // Enforce 1 template per server: remove any old extension and save template_<guildId>.png
-        if (guildId) {
-          for (const ext of ['png', 'jpg', 'jpeg']) {
-            const oldPath = path.join(TEMPLATES_DIR, `${guildId}.${ext}`);
-            if (fs.existsSync(oldPath)) {
-              try { fs.unlinkSync(oldPath); } catch (_) {}
-            }
-          }
-          fs.writeFileSync(path.join(TEMPLATES_DIR, `${guildId}.png`), buffer);
-        }
-
-        // Also save to root template.png as fallback
-        fs.writeFileSync('template.png', buffer);
-        try {
-          if (!fs.existsSync('public')) fs.mkdirSync('public');
-          fs.writeFileSync('public/template.png', buffer);
-        } catch (_) {}
+        // 3. Save single isolated template for this server and update memory
+        saveServerTemplate(guildId, normalized.buffer, {
+          width: normalized.width,
+          height: normalized.height,
+          originalWidth: normalized.originalWidth,
+          originalHeight: normalized.originalHeight,
+        });
 
         const embed = new EmbedBuilder()
           .setTitle('✅ Official Server Template Saved')
           .setColor(0x10b981)
           .setDescription(
-            `Successfully set the **official template** for **${interaction.guild ? interaction.guild.name : 'this server'}** (\`${testImgWidth}×${testImgHeight}px\`).\n` +
-            `🔒 **Policy Enforced:** Exactly **1 template per server**. Any previous server template has been superseded.\n` +
-            `All future cards generated or viewed with \`/card show\` in this server will stamp directly onto this official template!`
+            `Successfully saved and verified the **official template** for **${interaction.guild ? interaction.guild.name : 'this server'}**!\n\n` +
+            `🔒 **Strict Single-Template Isolation:** Exactly **1 template per server**. This template is permanently isolated to this server and will not leak to other servers.\n` +
+            `All future cards rendered with \`/card show\` or approved by staff will stamp directly onto this official template.`
           )
           .addFields(
-            { name: 'Server ID', value: `\`${guildId || 'Global'}\``, inline: true },
-            { name: 'Storage Slot', value: guildId ? `templates/${guildId}.png` : 'template.png', inline: true },
-            { name: 'Resolution', value: `${testImgWidth} × ${testImgHeight} px`, inline: true }
+            { name: 'Server', value: interaction.guild ? `${interaction.guild.name}` : `\`${guildId}\``, inline: true },
+            { name: 'Resolution', value: `${normalized.width} × ${normalized.height} px *(Original: ${normalized.originalWidth}×${normalized.originalHeight})*`, inline: true },
+            { name: 'Storage Slot', value: `\`templates/${guildId}.png\``, inline: true },
+            {
+              name: '📐 Design Blueprint & Alignment Grid',
+              value:
+                '• **Photo Frame:** `X=60, Y=324, W=337, H=344`\n' +
+                '• **Rank Box:** `X=54, Y=687, W=348, H=46`\n' +
+                '• **Citizen Details:** `X=490` (Rows at `Y=358, 446, 534, 622, 710`)\n' +
+                '• **Top Serial ID:** `X=1010, Y=36`',
+            }
           )
-          .setFooter({ text: 'Union of Indians Registry • Single-Template Server Isolation' })
+          .setFooter({ text: 'Union of Indians Registry • Template Management Engine' })
           .setTimestamp();
 
-        const file = new AttachmentBuilder(buffer, { name: 'server-template.png' });
+        const file = new AttachmentBuilder(normalized.buffer, { name: 'server-template.png' });
         embed.setImage('attachment://server-template.png');
 
         return interaction.editReply({ embeds: [embed], files: [file] });
       } catch (err) {
         console.error('[UOI Bot] Error setting template:', err);
         return interaction.editReply({
-          content: `❌ **Failed to process template image:** ${err.message}`,
+          content: `❌ **Failed to process template:** ${err.message}`,
         });
       }
     }
@@ -1003,47 +952,164 @@ export const cardCommand = {
     if (sub === 'view-template') {
       await interaction.deferReply({ ephemeral: true });
 
-      const { img, source, filePath } = await resolveTemplateImage(guildId);
-      if (!img && !filePath) {
-        return interaction.editReply({
-          content:
-            '⚠️ **No permanent template found for this server!**\nUse `/card set-template` with your template image attached to upload one (1 template per server).',
-        });
-      }
+      const resolved = await resolveTemplateImage(guildId);
+      const status = getServerTemplateStatus(guildId);
 
       let fileBuffer = null;
-      if (filePath && fs.existsSync(filePath)) {
-        try { fileBuffer = fs.readFileSync(filePath); } catch (_) {}
-      }
-      if (!fileBuffer && guildId && fs.existsSync(path.join(TEMPLATES_DIR, `${guildId}.png`))) {
-        try { fileBuffer = fs.readFileSync(path.join(TEMPLATES_DIR, `${guildId}.png`)); } catch (_) {}
-      }
-      if (!fileBuffer) {
-        for (const f of ['template.png', 'template.jpg', 'public/template.png']) {
-          if (fs.existsSync(f)) {
-            try { fileBuffer = fs.readFileSync(f); break; } catch (_) {}
-          }
-        }
+      if (resolved.filePath && fs.existsSync(resolved.filePath)) {
+        try { fileBuffer = fs.readFileSync(resolved.filePath); } catch (_) {}
       }
 
-      const dims = fileBuffer ? getImageDimensions(fileBuffer) : { width: img?.width || 1200, height: img?.height || 900 };
-      const displayW = img?.width || dims.width;
-      const displayH = img?.height || dims.height;
+      if (!fileBuffer) {
+        const def = await generateAndSaveDefaultTemplate();
+        if (def && def.buffer) fileBuffer = def.buffer;
+      }
 
       if (!fileBuffer) {
         return interaction.editReply({
-          content: `Active template loaded from: \`${source || 'Configured Template'}\` (${displayW}×${displayH}px)`,
+          content: '⚠️ Could not locate or render template file. Use `/card set-template` to upload a template.',
         });
       }
+
+      const dims = getImageDimensions(fileBuffer);
+      const isCustom = status.hasCustomTemplate;
 
       const file = new AttachmentBuilder(fileBuffer, { name: 'active-template.png' });
       const embed = new EmbedBuilder()
-        .setTitle('🖼️ Active Server Card Template')
-        .setColor(0x3b82f6)
-        .setDescription(`Loaded template for **${interaction.guild ? interaction.guild.name : 'this server'}**:\n• Source: \`${source || filePath || 'Server Storage'}\`\n• Resolution: **${displayW}×${displayH}px**`)
-        .setImage('attachment://active-template.png');
+        .setTitle(isCustom ? '🖼️ Active Custom Server Template' : '🖼️ Official Standard UOI Template')
+        .setColor(isCustom ? 0x10b981 : 0x38bdf8)
+        .setDescription(
+          `**Template Profile for ${interaction.guild ? interaction.guild.name : 'this server'}:**\n\n` +
+          `• **Status:** ${isCustom ? '🟢 **Custom Server Template Active** (1 per server policy)' : '🔵 **Default Official Template** (No custom template uploaded yet)'}\n` +
+          `• **Source:** \`${resolved.source || 'Template Storage'}\`\n` +
+          `• **Resolution:** **${dims.width} × ${dims.height} px**\n` +
+          `• **File Size:** ${Math.round(fileBuffer.length / 1024)} KB\n\n` +
+          (isCustom
+            ? '*To replace this template, upload a new image with `/card set-template`. To revert to default, use `/card reset-template`.*'
+            : '*To set a custom template for this server, use `/card set-template` with your template image attached!*')
+        )
+        .setImage('attachment://active-template.png')
+        .setFooter({ text: 'Union of Indians Registry • Template Viewer' })
+        .setTimestamp();
 
       return interaction.editReply({ embeds: [embed], files: [file] });
+    }
+
+    // ==========================================
+    // COMMAND: /card reset-template
+    // ==========================================
+    if (sub === 'reset-template') {
+      await interaction.deferReply({ ephemeral: false });
+
+      const db = loadDatabase();
+      const guildConfig = db.guilds?.[guildId];
+
+      const isGuildOwner = interaction.guild?.ownerId === interaction.user?.id;
+      const hasAdmin = interaction.memberPermissions?.has(PermissionFlagsBits.Administrator);
+      const hasManage = interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild);
+      const hasStaffRole = guildConfig?.staffRoleId && interaction.member?.roles?.cache?.has(guildConfig.staffRoleId);
+
+      if (!isGuildOwner && !hasAdmin && !hasManage && !hasStaffRole) {
+        return interaction.editReply({
+          content:
+            '❌ **Permission Denied:** Only server administrators, the server owner, members with `Manage Server`, or authorized staff can reset this server\'s card template.',
+        });
+      }
+
+      deleteServerTemplate(guildId);
+
+      const embed = new EmbedBuilder()
+        .setTitle('🔄 Server Template Reverted')
+        .setColor(0x38bdf8)
+        .setDescription(
+          `Successfully removed custom template for **${interaction.guild ? interaction.guild.name : 'this server'}**.\n\n` +
+          `All citizen cards will now use the **Official Standard UOI Template**.\n` +
+          `You can upload a new custom template at any time using \`/card set-template\`!`
+        )
+        .setFooter({ text: 'Union of Indians Registry • Template Management Engine' })
+        .setTimestamp();
+
+      return interaction.editReply({ embeds: [embed] });
+    }
+
+    // ==========================================
+    // COMMAND: /card whois (Roblox Auto-Detection & Identity Dossier)
+    // ==========================================
+    if (sub === 'whois') {
+      await interaction.deferReply({ ephemeral: false });
+      const targetUser = interaction.options.getUser('citizen') || interaction.user;
+      const manualQuery = interaction.options.getString('roblox');
+
+      let targetMember = null;
+      if (interaction.guild) {
+        try {
+          targetMember = await interaction.guild.members.fetch(targetUser.id);
+        } catch (_) {}
+      }
+
+      const robloxData = await autoDetectRobloxUser({
+        member: targetMember || interaction.member,
+        user: targetUser,
+        guildId,
+        guildConfig,
+        manualQuery,
+      });
+
+      const db = loadDatabase();
+      const existingCard = db.cards[targetUser.id];
+
+      const embed = new EmbedBuilder()
+        .setTitle(`🔎 Roblox Identity Dossier: ${targetMember?.displayName || targetUser.username}`)
+        .setColor(robloxData.detected ? 0x10b981 : 0xf59e0b)
+        .setDescription(
+          robloxData.detected
+            ? `Successfully detected and verified Roblox account for <@${targetUser.id}>!`
+            : `Could not automatically link a Roblox account for <@${targetUser.id}>. You can provide your Roblox username directly when generating a card.`
+        )
+        .addFields(
+          {
+            name: 'Discord Member',
+            value: `<@${targetUser.id}> (\`${targetUser.tag}\`)\n*ID: ${targetUser.id}*`,
+            inline: true,
+          },
+          {
+            name: 'Roblox Username',
+            value: robloxData.username
+              ? `[**@${robloxData.username}**](https://www.roblox.com/users/${robloxData.userId || '1'}/profile)${robloxData.hasVerifiedBadge ? ' ☑️' : ''}`
+              : '`Not Detected`',
+            inline: true,
+          },
+          {
+            name: 'Roblox Display Name',
+            value: robloxData.displayName || '`N/A`',
+            inline: true,
+          },
+          {
+            name: 'Roblox User ID',
+            value: robloxData.userId ? `\`${robloxData.userId}\`` : '`N/A`',
+            inline: true,
+          },
+          {
+            name: 'Detection Source',
+            value: `**${robloxData.method || 'None'}**\n*(${robloxData.confidence || 'Undetected'})*`,
+            inline: true,
+          },
+          {
+            name: 'UOI Registry Status',
+            value: existingCard && existingCard.status === 'ACTIVE'
+              ? `🟢 **Registered Citizen** (\`${existingCard.serialId}\`)\n*Rank: ${existingCard.assignedRank}*`
+              : '⚪ **Unregistered** *(Use `/card generate`)*',
+            inline: true,
+          }
+        )
+        .setFooter({ text: 'Union of Indians Registry • Automated Verification Engine' })
+        .setTimestamp();
+
+      if (robloxData.avatarUrl) {
+        embed.setThumbnail(robloxData.avatarUrl);
+      }
+
+      return interaction.editReply({ embeds: [embed] });
     }
 
     // ==========================================
@@ -1209,8 +1275,41 @@ export const cardCommand = {
         return interaction.editReply({ embeds: [embed] });
       }
 
-      // Fetch Roblox details & avatar
-      const robloxInfo = await fetchRobloxUserData(robloxQuery);
+      // Target member in guild for nickname resolution
+      let targetMember = null;
+      if (interaction.guild) {
+        try {
+          targetMember = await interaction.guild.members.fetch(targetUser.id);
+        } catch (_) {}
+      }
+
+      // Auto-Detect or Verify Roblox Account
+      const robloxInfo = await autoDetectRobloxUser({
+        member: targetMember || interaction.member,
+        user: targetUser,
+        guildId,
+        guildConfig,
+        manualQuery: robloxQuery,
+      });
+
+      if (!robloxInfo || (!robloxInfo.detected && !robloxQuery)) {
+        const failedEmbed = new EmbedBuilder()
+          .setTitle('🔍 Roblox Auto-Detection: No Linked Account Found')
+          .setColor(0xef4444)
+          .setDescription(
+            `Could not automatically detect a linked Roblox account for **<@${targetUser.id}>**.\n\n` +
+            `Checked sources:\n` +
+            `• **Bloxlink API:** No active binding detected\n` +
+            `• **RoVer API:** No active binding detected\n` +
+            `• **UOI Central Registry:** No prior registered card\n` +
+            `• **Server Nickname:** No recognized Roblox username pattern (e.g. \`[Rank] Username\` or \`Username | Division\`)\n\n` +
+            `👉 **Quick Fix:** Re-run the command with your Roblox username explicitly:\n` +
+            `\`/card generate roblox:YourRobloxUsername fullname:${fullName} gender:${gender}\``
+          )
+          .setFooter({ text: 'Union of Indians Registry • Automated Verification Engine' })
+          .setTimestamp();
+        return interaction.editReply({ embeds: [failedEmbed] });
+      }
 
       const requestId = `REQ-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
 
@@ -1233,6 +1332,9 @@ export const cardCommand = {
         robloxUsername: robloxInfo.username,
         robloxUserId: robloxInfo.userId,
         robloxAvatarUrl: robloxInfo.avatarUrl,
+        robloxDetectionMethod: robloxInfo.method,
+        robloxDetectionConfidence: robloxInfo.confidence,
+        robloxHasVerifiedBadge: robloxInfo.hasVerifiedBadge,
         submittedAt: new Date().toISOString(),
         status: 'PENDING',
         declineReason: null,
@@ -1265,8 +1367,13 @@ export const cardCommand = {
               {
                 name: 'Roblox Identity',
                 value: robloxInfo.userId
-                  ? `[@${robloxInfo.username}](https://www.roblox.com/users/${robloxInfo.userId}/profile) (\`ID: ${robloxInfo.userId}\`)`
+                  ? `[**@${robloxInfo.username}**](https://www.roblox.com/users/${robloxInfo.userId}/profile) (\`ID: ${robloxInfo.userId}\`)${robloxInfo.hasVerifiedBadge ? ' ☑️' : ''}`
                   : `@${robloxInfo.username}`,
+                inline: true,
+              },
+              {
+                name: '🤖 Detection Source',
+                value: `**${robloxInfo.method || 'Manual'}**\n*(${robloxInfo.confidence || 'Verified'})*`,
                 inline: true,
               },
               { name: 'Request ID', value: `\`${requestId}\``, inline: true },
@@ -1308,6 +1415,7 @@ export const cardCommand = {
         .setColor(0x38bdf8)
         .setDescription(
           `**Your UOI Citizen Card application has been dispatched to Staff!**\n\n` +
+          `🤖 **Roblox Auto-Detection:** Linked to [**@${robloxInfo.username}**](https://www.roblox.com/users/${robloxInfo.userId || '1'}/profile)${robloxInfo.hasVerifiedBadge ? ' ☑️' : ''} via **${robloxInfo.method}**.\n\n` +
           `Under Union procedure, ID cards are not issued instantly. Your application has been routed to the staff review channel for officer verification.`
         )
         .addFields(
@@ -1337,6 +1445,10 @@ export const cardCommand = {
         )
         .setFooter({ text: 'Union of Indians Central Registry • Verification Queue' })
         .setTimestamp();
+
+      if (robloxInfo.avatarUrl) {
+        applicantEmbed.setThumbnail(robloxInfo.avatarUrl);
+      }
 
       if (!postedToStaff) {
         applicantEmbed.addFields({
@@ -1780,6 +1892,9 @@ export const cardCommand = {
         gender: req.gender,
         assignedRank: req.assignedRank,
         avatarUrl: req.robloxAvatarUrl,
+        robloxDetectionMethod: req.robloxDetectionMethod || 'Manual',
+        robloxDetectionConfidence: req.robloxDetectionConfidence || 'Verified',
+        robloxHasVerifiedBadge: !!req.robloxHasVerifiedBadge,
         issuedBy: {
           discordId: interaction.user.id,
           discordTag: interaction.user.tag,

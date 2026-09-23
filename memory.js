@@ -152,53 +152,95 @@ export function saveServerMemory(memory) {
 }
 
 /**
- * Smart channel finder to save time during setup
+ * Check if the bot has permission to view, send, and embed in a channel
+ */
+export function canBotPostInChannel(channel, guild = null) {
+  if (!channel || !channel.isTextBased || !channel.isTextBased() || channel.isVoiceBased?.()) return false;
+  const g = guild || channel.guild;
+  const me = g?.members?.me;
+  if (!me) return true;
+  const perms = channel.permissionsFor ? channel.permissionsFor(me) : null;
+  if (!perms) return false;
+  return (
+    perms.has('ViewChannel') &&
+    perms.has('SendMessages') &&
+    perms.has('EmbedLinks')
+  );
+}
+
+/**
+ * Smart channel finder to save time during setup with verified bot permissions
  */
 export function findBestStaffChannel(guild) {
   if (!guild || !guild.channels || !guild.channels.cache) return null;
 
-  const channels = Array.from(guild.channels.cache.values()).filter(
+  const allTextChannels = Array.from(guild.channels.cache.values()).filter(
     (c) => c.isTextBased && c.isTextBased() && !c.isVoiceBased?.()
   );
 
-  // High priority keywords for card staff review
+  // Filter channels to only text channels where the bot ACTUALLY has View, Send, and Embed permissions
+  const channels = allTextChannels.filter((c) => canBotPostInChannel(c, guild));
+  const pool = channels.length > 0 ? channels : allTextChannels;
+
+  // High priority keywords for card staff review (Staff chat & review channels prioritized over audit logs)
   const priorityPatterns = [
     /card[-_]?review/i,
     /id[-_]?review/i,
     /card[-_]?apps/i,
     /id[-_]?cards/i,
     /staff[-_]?review/i,
+    /staff[-_]?chat/i,
+    /staff/i,
+    /mod[-_]?chat/i,
+    /officer/i,
+    /admin/i,
     /applications/i,
     /staff[-_]?commands/i,
-    /mod[-_]?logs/i,
     /bot[-_]?commands/i,
-    /staff/i,
-    /admin/i,
     /general/i,
+    /mod[-_]?logs/i,
   ];
 
   for (const pattern of priorityPatterns) {
-    const found = channels.find((c) => pattern.test(c.name));
+    const found = pool.find((c) => pattern.test(c.name));
     if (found) return found;
   }
 
-  // Fallback to system channel if available
-  if (guild.systemChannel) return guild.systemChannel;
+  // Fallback to system channel if writable by bot
+  if (guild.systemChannel && canBotPostInChannel(guild.systemChannel, guild)) {
+    return guild.systemChannel;
+  }
 
-  // Fallback to first text channel bot can write to
-  return channels[0] || null;
+  // Fallback to first channel in pool
+  return pool[0] || null;
 }
 
 /**
- * Auto-detect and record server setup to save time
+ * Auto-detect and record server setup to save time with self-healing
  */
 export function autoDetectAndSaveSetup(guild, currentChannel = null) {
   if (!guild) return null;
   const memory = loadServerMemory();
   const existing = memory.servers[guild.id];
 
-  // If already has explicit valid setup, preserve it
+  // If already has setup, check if the configured staff channel is valid and accessible
   if (existing && existing.setup && existing.setup.isSetup && existing.setup.staffChannelId) {
+    const currentStaffChannel = guild.channels.cache?.get(existing.setup.staffChannelId);
+    // If the channel exists and the bot can post in it, keep it
+    if (currentStaffChannel && canBotPostInChannel(currentStaffChannel, guild)) {
+      return existing.setup;
+    }
+    // If it was auto-configured or channel is missing/inaccessible, self-heal to best available channel!
+    if (existing.setup.autoConfigured || !currentStaffChannel) {
+      const healedChannel = findBestStaffChannel(guild) || currentChannel;
+      if (healedChannel && healedChannel.id !== existing.setup.staffChannelId) {
+        console.log(`[UOI Bot] 🔄 Auto-healing staff review channel for "${guild.name}": #${existing.setup.staffChannelName} -> #${healedChannel.name}`);
+        existing.setup.staffChannelId = healedChannel.id;
+        existing.setup.staffChannelName = healedChannel.name;
+        recordServer(guild, existing.setup);
+        return existing.setup;
+      }
+    }
     return existing.setup;
   }
 
