@@ -27,6 +27,32 @@ import {
   fetchRobloxUserData,
   extractRobloxCandidates,
 } from './roblox_detector.js';
+import {
+  getGitStatus,
+  handleGitHubWebhook,
+  startGitCommitWatcher,
+  pullLatestCode,
+  gracefulRestart,
+  initGitState,
+} from './git_sync.js';
+
+// Pre-cache static HTML dashboard in memory for instant 0ms responses
+let _cachedHtml = null;
+let _cachedHtmlMtime = 0;
+function getCachedDashboardHtml() {
+  const htmlPath = path.join(process.cwd(), 'index.html');
+  try {
+    if (fs.existsSync(htmlPath)) {
+      const stat = fs.statSync(htmlPath);
+      if (!_cachedHtml || stat.mtimeMs > _cachedHtmlMtime) {
+        _cachedHtml = fs.readFileSync(htmlPath, 'utf8');
+        _cachedHtmlMtime = stat.mtimeMs;
+      }
+      return _cachedHtml;
+    }
+  } catch (_) {}
+  return _cachedHtml;
+}
 
 // 1. Lightweight HTTP Healthcheck & Status server for Cloud Run / Pterodactyl / WispByte
 const DEFAULT_PORT = 3000;
@@ -68,7 +94,7 @@ const requestHandler = async (req, res) => {
         res.writeHead(200, {
           'Content-Type': 'image/png',
           'Content-Length': fileBuf.length,
-          'Cache-Control': 'no-cache',
+          'Cache-Control': 'public, max-age=30',
         });
         return res.end(fileBuf);
       }
@@ -199,6 +225,45 @@ const requestHandler = async (req, res) => {
     }
   }
 
+  // API: GitHub Webhook Handler (Auto-restarts server when repo receives commits)
+  if (
+    (urlPath === '/api/webhook/github' ||
+      urlPath === '/webhook' ||
+      urlPath === '/api/git/push' ||
+      urlPath === '/api/webhook') &&
+    req.method === 'POST'
+  ) {
+    const chunks = [];
+    req.on('data', (chunk) => chunks.push(chunk));
+    req.on('end', async () => {
+      const rawBuffer = Buffer.concat(chunks);
+      await handleGitHubWebhook(req, res, rawBuffer);
+    });
+    return;
+  }
+
+  // API: Git & Deployment Status
+  if (urlPath === '/api/git/status' || urlPath === '/api/git') {
+    const status = getGitStatus();
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    return res.end(JSON.stringify(status));
+  }
+
+  // API: Manual Git Pull & Server Restart
+  if (urlPath === '/api/git/sync' && req.method === 'POST') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(
+      JSON.stringify({
+        success: true,
+        message: 'Sync initiated. Pulling latest code and restarting server...',
+      })
+    );
+    pullLatestCode().then(() => {
+      gracefulRestart('Dashboard Manual Git Sync');
+    });
+    return;
+  }
+
   if (
     urlPath === '/api/health' ||
     urlPath === '/health' ||
@@ -209,6 +274,7 @@ const requestHandler = async (req, res) => {
     const memory = loadServerMemory();
     const serverList = Object.values(memory.servers || {});
     const canvasInfo = getCanvasEngineInfo ? getCanvasEngineInfo() : { engine: 'unknown' };
+    const gitInfo = getGitStatus();
     res.writeHead(200, { 'Content-Type': 'application/json' });
     return res.end(
       JSON.stringify({
@@ -217,6 +283,7 @@ const requestHandler = async (req, res) => {
         botReady: !!(globalThis.__uoiBotClient && globalThis.__uoiBotClient.isReady()),
         uptimeSeconds: Math.floor(process.uptime()),
         canvasEngine: canvasInfo,
+        git: gitInfo,
         permanentMemory: {
           totalRememberedServers: serverList.length,
           activeSetups: serverList.filter((s) => s.setup?.isSetup).length,
@@ -236,15 +303,15 @@ const requestHandler = async (req, res) => {
     );
   }
 
-  // Serve static HTML status dashboard
-  try {
-    const htmlPath = path.join(process.cwd(), 'index.html');
-    if (fs.existsSync(htmlPath)) {
-      const htmlContent = fs.readFileSync(htmlPath, 'utf8');
-      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-      return res.end(htmlContent);
-    }
-  } catch (_) {}
+  // Serve static HTML status dashboard (Instant 0ms in-memory cache)
+  const cachedHtml = getCachedDashboardHtml();
+  if (cachedHtml) {
+    res.writeHead(200, {
+      'Content-Type': 'text/html; charset=utf-8',
+      'Cache-Control': 'no-cache',
+    });
+    return res.end(cachedHtml);
+  }
 
   res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
   res.end('Union of Indians (UOI) Discord Bot is active.');
@@ -261,6 +328,7 @@ server3000.on('error', (err) => {
 });
 server3000.listen(DEFAULT_PORT, '0.0.0.0', () => {
   console.log(`[UOI Bot] 🌐 Healthcheck listener active on port ${DEFAULT_PORT}`);
+  startGitCommitWatcher();
 });
 
 // Start listener on Cloud Run deployment port if specified and different from 3000

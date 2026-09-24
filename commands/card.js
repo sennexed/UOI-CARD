@@ -39,6 +39,11 @@ import {
   fetchRobloxUserData,
   extractRobloxCandidates,
 } from '../roblox_detector.js';
+import {
+  getGitStatus,
+  pullLatestCode,
+  gracefulRestart,
+} from '../git_sync.js';
 
 // High-Performance Native Canvas Engine (@napi-rs/canvas backed by Skia)
 let createCanvas = null;
@@ -202,10 +207,14 @@ function getImageDimensions(buffer) {
 }
 
 // ========================================================
-// PERSISTENT DATABASE & TEMPLATE MANAGEMENT
+// PERSISTENT DATABASE & TEMPLATE MANAGEMENT (OPTIMIZED IN-MEMORY CACHE)
 // ========================================================
 const DATA_DIR = path.join(process.cwd(), 'data');
 const DB_FILE = path.join(DATA_DIR, 'cards.json');
+
+let _cachedCardsDb = null;
+let _cardsSaveTimeout = null;
+let _cardsIsDirty = false;
 
 function ensureDirectories() {
   if (!fs.existsSync(DATA_DIR)) {
@@ -216,7 +225,28 @@ function ensureDirectories() {
   }
 }
 
-function loadDatabase() {
+function flushCardsDbSync() {
+  if (!_cachedCardsDb || !_cardsIsDirty) return;
+  ensureDirectories();
+  const tmpPath = `${DB_FILE}.tmp.${Date.now()}.${Math.random().toString(36).slice(2, 6)}`;
+  try {
+    fs.writeFileSync(tmpPath, JSON.stringify(_cachedCardsDb, null, 2), 'utf8');
+    fs.renameSync(tmpPath, DB_FILE);
+    _cardsIsDirty = false;
+  } catch (_) {}
+}
+
+try {
+  process.on('beforeExit', flushCardsDbSync);
+  process.on('SIGINT', () => { flushCardsDbSync(); process.exit(0); });
+  process.on('SIGTERM', () => { flushCardsDbSync(); process.exit(0); });
+} catch (_) {}
+
+function loadDatabase(forceReload = false) {
+  if (_cachedCardsDb && !forceReload) {
+    return _cachedCardsDb;
+  }
+
   ensureDirectories();
   let parsed = { cards: {}, serToUser: {}, guilds: {}, pendingRequests: {} };
   try {
@@ -247,16 +277,26 @@ function loadDatabase() {
     }
   } catch (_) {}
 
+  _cachedCardsDb = parsed;
   return parsed;
 }
 
 function saveDatabase(db) {
-  ensureDirectories();
-  try {
-    fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2), 'utf8');
-  } catch (err) {
-    console.error('[UOI Bot] Error saving database:', err.message);
-  }
+  _cachedCardsDb = db;
+  _cardsIsDirty = true;
+
+  if (_cardsSaveTimeout) clearTimeout(_cardsSaveTimeout);
+  _cardsSaveTimeout = setTimeout(() => {
+    ensureDirectories();
+    const tmpPath = `${DB_FILE}.tmp.${Date.now()}.${Math.random().toString(36).slice(2, 6)}`;
+    try {
+      fs.writeFileSync(tmpPath, JSON.stringify(_cachedCardsDb, null, 2), 'utf8');
+      fs.renameSync(tmpPath, DB_FILE);
+      _cardsIsDirty = false;
+    } catch (err) {
+      console.error('[UOI Bot] Error saving database:', err.message);
+    }
+  }, 50);
 
   // Sync guild configurations directly into permanent server memory
   try {
@@ -690,6 +730,18 @@ export const cardCommand = {
       sub
         .setName('memory')
         .setDescription('Inspect permanent server memory, saved channel setups, and persistent storage health')
+    )
+    // 11. /card git-status (Inspect Git commit hash and auto-deploy status)
+    .addSubcommand((sub) =>
+      sub
+        .setName('git-status')
+        .setDescription('Inspect Git repository commit hash, deployment status, and webhook auto-restart pipeline')
+    )
+    // 12. /card git-sync (Pull latest Git commit and restart bot)
+    .addSubcommand((sub) =>
+      sub
+        .setName('git-sync')
+        .setDescription('Pull latest Git commit and gracefully reboot/restart the server (Admins Only)')
     ),
 
   async execute(interaction) {
@@ -1797,6 +1849,81 @@ export const cardCommand = {
         .setTimestamp();
 
       return interaction.editReply({ embeds: [embed] });
+    }
+
+    // ==========================================
+    // COMMAND: /card git-status (Inspect Git & Auto-Deploy Pipeline)
+    // ==========================================
+    if (sub === 'git-status') {
+      await interaction.deferReply({ ephemeral: false });
+
+      const git = getGitStatus();
+      const embed = new EmbedBuilder()
+        .setTitle('🚀 Git Auto-Sync & Auto-Restart Status')
+        .setColor(0x38bdf8)
+        .setDescription(
+          `**Automatic Server Restart on Git Commit is ACTIVE.**\n` +
+          `Whenever a new commit is pushed to the repository or detected via GitHub Webhooks, the bot pulls the latest code and gracefully reboots without dropping data.`
+        )
+        .addFields(
+          {
+            name: '📦 Active Commit',
+            value: `• **Hash:** \`${git.shortHash || 'N/A'}\` (\`${git.commitHash || 'latest'}\`)\n` +
+                   `• **Branch:** \`${git.branch || 'main'}\`\n` +
+                   `• **Author:** \`${git.commitAuthor || 'GitHub'}\`\n` +
+                   `• **Message:** *${(git.commitMessage || 'Latest build').split('\n')[0]}*\n` +
+                   `• **Date:** ${git.commitDate ? new Date(git.commitDate).toLocaleString() : 'Recent'}`,
+            inline: false,
+          },
+          {
+            name: '⚡ Webhook Endpoint',
+            value: `\`POST /api/webhook/github\`\n*Set Payload URL to this server's endpoint in GitHub Repo -> Settings -> Webhooks.*`,
+            inline: true,
+          },
+          {
+            name: '🔄 Auto-Restart Mode',
+            value: `• **Status:** 🟢 **Active**\n• **Polling:** \`${git.pollIntervalSeconds}s\`\n• **Auto-Pull:** \`${git.autoPullEnabled ? 'Enabled' : 'Disabled'}\``,
+            inline: true,
+          }
+        )
+        .setFooter({ text: 'Union of Indians Registry • Git Auto-Sync Engine' })
+        .setTimestamp();
+
+      return interaction.editReply({ embeds: [embed] });
+    }
+
+    // ==========================================
+    // COMMAND: /card git-sync (Pull latest commit & restart)
+    // ==========================================
+    if (sub === 'git-sync') {
+      await interaction.deferReply({ ephemeral: false });
+
+      const isAdmin =
+        interaction.member?.permissions?.has(PermissionFlagsBits.Administrator) ||
+        interaction.member?.permissions?.has(PermissionFlagsBits.ManageGuild);
+
+      if (!isAdmin) {
+        return interaction.editReply({
+          content: '❌ **Permission Denied:** Only administrators can trigger manual Git synchronization and server restart.',
+        });
+      }
+
+      const embed = new EmbedBuilder()
+        .setTitle('🔄 Initiating Git Pull & Server Restart')
+        .setColor(0xf59e0b)
+        .setDescription(
+          `**Pulling latest commits from remote repository and rebooting server...**\n` +
+          `The bot process will restart momentarily to load all updated commands, templates, and configurations.`
+        )
+        .setFooter({ text: 'Union of Indians Registry • Live Deployment' })
+        .setTimestamp();
+
+      await interaction.editReply({ embeds: [embed] });
+
+      pullLatestCode().then(() => {
+        gracefulRestart(`Discord Slash Command /card git-sync by @${interaction.user.tag}`);
+      });
+      return;
     }
   },
 

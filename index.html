@@ -430,6 +430,16 @@
               <td>Inspects permanent server memory, channel routing, and persistent database storage status.</td>
               <td>Everyone</td>
             </tr>
+            <tr>
+              <td><code>/card git-status</code></td>
+              <td>Inspects active Git commit SHA, branch, deployment details, and webhook auto-restart pipeline.</td>
+              <td>Everyone</td>
+            </tr>
+            <tr>
+              <td><code>/card git-sync</code></td>
+              <td>Pulls latest commits from repository and gracefully reboots the server with zero data loss.</td>
+              <td>Administrator</td>
+            </tr>
           </tbody>
         </table>
       </div>
@@ -471,6 +481,87 @@
           <div id="roblox-test-result" style="display: none; margin-top: 14px; padding: 12px; border-radius: 6px; background: rgba(30,41,59,0.7); border: 1px solid rgba(56,189,248,0.2);">
             <!-- Live Result Populated via JS -->
           </div>
+        </div>
+      </div>
+
+      <!-- Git Auto-Deploy & Continuous Sync Engine -->
+      <div class="card" style="border: 1px solid rgba(16, 185, 129, 0.35);">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 8px;">
+          <div class="card-title" style="margin-bottom: 0;">🚀 Git Auto-Deploy & Auto-Restart Pipeline</div>
+          <span id="git-status-badge" style="font-size: 11px; padding: 3px 8px; border-radius: 4px; background: rgba(16,185,129,0.2); color: #34d399; font-weight: 600;">
+            🟢 Auto-Restart on Commit: ACTIVE
+          </span>
+        </div>
+        <p style="color: var(--text-muted); font-size: 13px; line-height: 1.5; margin-bottom: 16px;">
+          Whenever you push a commit to your GitHub repository or trigger a sync, the server automatically captures the commit event, updates the codebase via <code>git pull</code>, and gracefully restarts without dropping any server data or template memory.
+        </p>
+
+        <!-- Current Git Commit Dossier -->
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-bottom: 16px;">
+          <div style="background: rgba(15,23,42,0.6); padding: 12px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.08);">
+            <div style="font-size: 11px; color: var(--text-muted); text-transform: uppercase;">Active Commit</div>
+            <div id="git-commit-hash" style="font-family: monospace; font-size: 14px; font-weight: bold; color: #38bdf8; margin-top: 4px;">
+              Loading...
+            </div>
+            <div id="git-commit-msg" style="font-size: 12px; color: var(--text-muted); margin-top: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+              --
+            </div>
+          </div>
+          <div style="background: rgba(15,23,42,0.6); padding: 12px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.08);">
+            <div style="font-size: 11px; color: var(--text-muted); text-transform: uppercase;">Branch & Author</div>
+            <div id="git-branch-author" style="font-size: 13px; font-weight: 600; color: #f8fafc; margin-top: 4px;">
+              main • System
+            </div>
+            <div id="git-commit-date" style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">
+              --
+            </div>
+          </div>
+          <div style="background: rgba(15,23,42,0.6); padding: 12px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.08);">
+            <div style="font-size: 11px; color: var(--text-muted); text-transform: uppercase;">Auto-Sync Pipeline</div>
+            <div style="font-size: 13px; font-weight: 600; color: #34d399; margin-top: 4px;">
+              Webhook & Poller Active
+            </div>
+            <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">
+              Polling: 45s interval
+            </div>
+          </div>
+        </div>
+
+        <!-- GitHub Webhook URL Box -->
+        <div style="background: rgba(15,23,42,0.6); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 14px; margin-bottom: 14px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; flex-wrap: wrap; gap: 8px;">
+            <div style="font-weight: 600; font-size: 12px; color: #f8fafc;">
+              🔗 GitHub Webhook Payload URL:
+            </div>
+            <span style="font-size: 11px; color: var(--text-muted);">
+              Add to <strong>GitHub Repo &gt; Settings &gt; Webhooks</strong>
+            </span>
+          </div>
+          <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+            <input
+              id="webhook-url-input"
+              type="text"
+              readonly
+              style="flex: 1; min-width: 240px; padding: 8px 12px; background: rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.15); border-radius: 6px; color: #38bdf8; font-family: monospace; font-size: 12px;"
+              value="/api/webhook/github"
+            />
+            <button
+              class="btn"
+              style="padding: 8px 16px; font-size: 12px; background: rgba(56,189,248,0.2); color: #38bdf8; border: 1px solid rgba(56,189,248,0.4);"
+              onclick="copyWebhookUrl()"
+            >
+              📋 Copy Webhook URL
+            </button>
+            <button
+              id="btn-manual-sync"
+              class="btn btn-primary"
+              style="padding: 8px 16px; font-size: 12px;"
+              onclick="triggerManualGitSync()"
+            >
+              🔄 Pull &amp; Restart Now
+            </button>
+          </div>
+          <div id="git-sync-feedback" style="display: none; margin-top: 10px; font-size: 12px;"></div>
         </div>
       </div>
 
@@ -756,10 +847,88 @@
         }
       }
 
+      // Git Deployment & Auto-Restart Pipeline UI
+      async function updateGitStatus() {
+        try {
+          const res = await fetch('/api/git/status');
+          if (!res.ok) return;
+          const git = await res.json();
+
+          const hashEl = document.getElementById('git-commit-hash');
+          const msgEl = document.getElementById('git-commit-msg');
+          const branchAuthorEl = document.getElementById('git-branch-author');
+          const dateEl = document.getElementById('git-commit-date');
+          const webhookInput = document.getElementById('webhook-url-input');
+
+          if (hashEl) {
+            hashEl.textContent = `${git.shortHash || 'latest'} (${git.isGitRepo ? 'Git Repo' : 'Standalone'})`;
+          }
+          if (msgEl) {
+            msgEl.textContent = (git.commitMessage || 'Latest build deployment').split('\n')[0];
+            msgEl.title = git.commitMessage || '';
+          }
+          if (branchAuthorEl) {
+            branchAuthorEl.textContent = `${git.branch || 'main'} • ${git.commitAuthor || 'GitHub'}`;
+          }
+          if (dateEl) {
+            dateEl.textContent = git.commitDate ? new Date(git.commitDate).toLocaleString() : 'Recently';
+          }
+          if (webhookInput) {
+            const host = window.location.origin;
+            webhookInput.value = `${host}/api/webhook/github`;
+          }
+        } catch (_) {}
+      }
+
+      function copyWebhookUrl() {
+        const input = document.getElementById('webhook-url-input');
+        if (!input) return;
+        navigator.clipboard.writeText(input.value).then(() => {
+          const feedback = document.getElementById('git-sync-feedback');
+          if (feedback) {
+            feedback.style.display = 'block';
+            feedback.style.color = '#34d399';
+            feedback.textContent = '✅ Webhook URL copied! Paste this in your GitHub Repository -> Settings -> Webhooks -> Payload URL.';
+            setTimeout(() => { feedback.style.display = 'none'; }, 6000);
+          }
+        });
+      }
+
+      async function triggerManualGitSync() {
+        const btn = document.getElementById('btn-manual-sync');
+        const feedback = document.getElementById('git-sync-feedback');
+        if (btn) btn.disabled = true;
+        if (feedback) {
+          feedback.style.display = 'block';
+          feedback.style.color = '#38bdf8';
+          feedback.textContent = '⏳ Executing git pull and restarting server process...';
+        }
+
+        try {
+          const res = await fetch('/api/git/sync', { method: 'POST' });
+          const data = await res.json();
+          if (feedback) {
+            feedback.style.color = '#34d399';
+            feedback.textContent = '🚀 ' + (data.message || 'Server restart triggered.');
+          }
+          setTimeout(() => {
+            window.location.reload();
+          }, 3000);
+        } catch (err) {
+          if (feedback) {
+            feedback.style.color = '#f87171';
+            feedback.textContent = '❌ ' + err.message;
+          }
+          if (btn) btn.disabled = false;
+        }
+      }
+
       updateMemoryStatus();
       updateTemplateStatus();
+      updateGitStatus();
       setInterval(updateMemoryStatus, 5000);
       setInterval(updateTemplateStatus, 10000);
+      setInterval(updateGitStatus, 10000);
     </script>
   </body>
 </html>

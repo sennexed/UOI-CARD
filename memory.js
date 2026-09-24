@@ -2,12 +2,16 @@ import fs from 'fs';
 import path from 'path';
 
 // ========================================================
-// PERMANENT SERVER MEMORY & SETUP REGISTRY
+// PERMANENT SERVER MEMORY & SETUP REGISTRY (OPTIMIZED IN-MEMORY CACHE)
 // ========================================================
 const DATA_DIR = path.join(process.cwd(), 'data');
 const MEMORY_FILE = path.join(DATA_DIR, 'server_memory.json');
 const BACKUP_FILE = path.join(DATA_DIR, 'server_memory.backup.json');
 const CARDS_FILE = path.join(DATA_DIR, 'cards.json');
+
+let _cachedMemory = null;
+let _saveTimeout = null;
+let _isDirty = false;
 
 function ensureDataDir() {
   if (!fs.existsSync(DATA_DIR)) {
@@ -20,7 +24,7 @@ function ensureDataDir() {
 // Atomic file write using temporary swap file to prevent corruption
 function atomicWriteJson(filePath, data) {
   ensureDataDir();
-  const tmpPath = `${filePath}.tmp.${Date.now()}`;
+  const tmpPath = `${filePath}.tmp.${Date.now()}.${Math.random().toString(36).slice(2, 6)}`;
   try {
     fs.writeFileSync(tmpPath, JSON.stringify(data, null, 2), 'utf8');
     fs.renameSync(tmpPath, filePath);
@@ -35,9 +39,14 @@ function atomicWriteJson(filePath, data) {
 }
 
 /**
- * Load server memory with backup fallback and cross-database reconciliation
+ * Load server memory with backup fallback and cross-database reconciliation.
+ * Uses high-speed in-memory cache for instant O(1) reads.
  */
-export function loadServerMemory() {
+export function loadServerMemory(forceReload = false) {
+  if (_cachedMemory && !forceReload) {
+    return _cachedMemory;
+  }
+
   ensureDataDir();
   let memory = { version: 1, lastUpdated: new Date().toISOString(), servers: {} };
 
@@ -112,43 +121,68 @@ export function loadServerMemory() {
     } catch (_) {}
   }
 
+  _cachedMemory = memory;
   return memory;
 }
 
 /**
+ * Flush cached memory state synchronously to disk (used on clean shutdown)
+ */
+export function flushMemorySync() {
+  if (!_cachedMemory || !_isDirty) return;
+  _cachedMemory.lastUpdated = new Date().toISOString();
+  atomicWriteJson(MEMORY_FILE, _cachedMemory);
+  atomicWriteJson(BACKUP_FILE, _cachedMemory);
+  _isDirty = false;
+}
+
+// Auto-flush on process termination
+try {
+  process.on('beforeExit', flushMemorySync);
+  process.on('SIGINT', () => { flushMemorySync(); process.exit(0); });
+  process.on('SIGTERM', () => { flushMemorySync(); process.exit(0); });
+} catch (_) {}
+
+/**
  * Save server memory atomically and duplicate to backup file & cards.json
+ * Updates memory in O(1) time and batches disk persistence to maintain ultra-fast responsiveness.
  */
 export function saveServerMemory(memory) {
-  ensureDataDir();
-  memory.lastUpdated = new Date().toISOString();
+  _cachedMemory = memory;
+  _cachedMemory.lastUpdated = new Date().toISOString();
+  _isDirty = true;
 
-  // Write primary memory file
-  atomicWriteJson(MEMORY_FILE, memory);
-  // Write backup memory file
-  atomicWriteJson(BACKUP_FILE, memory);
+  // Immediate debounced atomic write (50ms debounce for rapid operations)
+  if (_saveTimeout) clearTimeout(_saveTimeout);
+  _saveTimeout = setTimeout(() => {
+    ensureDataDir();
+    atomicWriteJson(MEMORY_FILE, _cachedMemory);
+    atomicWriteJson(BACKUP_FILE, _cachedMemory);
+    _isDirty = false;
 
-  // Sync setup into cards.json to keep both stores in 100% parity
-  try {
-    let cardsDb = { cards: {}, serToUser: {}, guilds: {}, pendingRequests: {} };
-    if (fs.existsSync(CARDS_FILE)) {
-      try {
-        cardsDb = JSON.parse(fs.readFileSync(CARDS_FILE, 'utf8'));
-      } catch (_) {}
-    }
-    cardsDb.guilds = cardsDb.guilds || {};
-    for (const [gId, sRec] of Object.entries(memory.servers || {})) {
-      if (sRec.setup) {
-        cardsDb.guilds[gId] = {
-          ...sRec.setup,
-          name: sRec.name,
-          guildId: gId,
-        };
+    // Sync setup into cards.json to keep both stores in 100% parity
+    try {
+      let cardsDb = { cards: {}, serToUser: {}, guilds: {}, pendingRequests: {} };
+      if (fs.existsSync(CARDS_FILE)) {
+        try {
+          cardsDb = JSON.parse(fs.readFileSync(CARDS_FILE, 'utf8'));
+        } catch (_) {}
       }
+      cardsDb.guilds = cardsDb.guilds || {};
+      for (const [gId, sRec] of Object.entries(_cachedMemory.servers || {})) {
+        if (sRec.setup) {
+          cardsDb.guilds[gId] = {
+            ...sRec.setup,
+            name: sRec.name,
+            guildId: gId,
+          };
+        }
+      }
+      atomicWriteJson(CARDS_FILE, cardsDb);
+    } catch (syncErr) {
+      console.warn('[UOI Bot] Notice during cards.json sync:', syncErr.message);
     }
-    atomicWriteJson(CARDS_FILE, cardsDb);
-  } catch (syncErr) {
-    console.warn('[UOI Bot] Notice during cards.json sync:', syncErr.message);
-  }
+  }, 50);
 }
 
 /**

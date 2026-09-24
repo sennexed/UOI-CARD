@@ -13,6 +13,71 @@ const STOP_WORDS = new Set([
   'UOI', 'UNION', 'INDIAN', 'INDIA', 'TEST', 'BOT', 'GUEST', 'USER', 'PLAYER',
 ]);
 
+// High-Speed In-Memory Cache (TTL: 15 minutes for profiles, 30 minutes for bindings)
+const PROFILE_CACHE_TTL_MS = 15 * 60 * 1000;
+const BINDING_CACHE_TTL_MS = 30 * 60 * 1000;
+const _profileCache = new Map();
+const _bindingCache = new Map();
+
+function getCachedProfile(key) {
+  if (!key) return null;
+  const normalizedKey = String(key).toLowerCase();
+  const entry = _profileCache.get(normalizedKey);
+  if (entry && entry.expiresAt > Date.now()) {
+    return entry.data;
+  }
+  if (entry) _profileCache.delete(normalizedKey);
+  return null;
+}
+
+function setCachedProfile(key, data) {
+  if (!key || !data) return;
+  const normalizedKey = String(key).toLowerCase();
+  // Evict if cache grows too large
+  if (_profileCache.size > 2000) {
+    const oldestKey = _profileCache.keys().next().value;
+    _profileCache.delete(oldestKey);
+  }
+  _profileCache.set(normalizedKey, {
+    data,
+    expiresAt: Date.now() + PROFILE_CACHE_TTL_MS,
+  });
+  if (data.userId) {
+    _profileCache.set(String(data.userId), {
+      data,
+      expiresAt: Date.now() + PROFILE_CACHE_TTL_MS,
+    });
+  }
+  if (data.username) {
+    _profileCache.set(String(data.username).toLowerCase(), {
+      data,
+      expiresAt: Date.now() + PROFILE_CACHE_TTL_MS,
+    });
+  }
+}
+
+function getCachedBinding(key) {
+  if (!key) return null;
+  const entry = _bindingCache.get(key);
+  if (entry && entry.expiresAt > Date.now()) {
+    return entry.robloxId;
+  }
+  if (entry) _bindingCache.delete(key);
+  return null;
+}
+
+function setCachedBinding(key, robloxId) {
+  if (!key || !robloxId) return;
+  if (_bindingCache.size > 2000) {
+    const oldest = _bindingCache.keys().next().value;
+    _bindingCache.delete(oldest);
+  }
+  _bindingCache.set(key, {
+    robloxId: String(robloxId),
+    expiresAt: Date.now() + BINDING_CACHE_TTL_MS,
+  });
+}
+
 /**
  * Clean and extract candidate Roblox username tokens from Discord nickname/name strings.
  * Enforces Roblox username specifications: 3-20 characters, [a-zA-Z0-9_], no consecutive underscores.
@@ -64,10 +129,15 @@ export function extractRobloxCandidates(rawStrings = []) {
 
 /**
  * Fetch full Roblox profile details and avatar thumbnail for a numerical ID or username.
+ * Accelerated with 15-minute in-memory caching and parallel thumbnail retrieval.
  */
 export async function fetchRobloxUserData(query) {
   if (!query) return null;
   const cleanQuery = String(query).trim();
+
+  // 1. Check in-memory cache
+  const cached = getCachedProfile(cleanQuery);
+  if (cached) return cached;
 
   try {
     let userId = null;
@@ -79,7 +149,9 @@ export async function fetchRobloxUserData(query) {
     if (/^\d+$/.test(cleanQuery)) {
       userId = cleanQuery;
       try {
-        const uResp = await fetch(`https://users.roblox.com/v1/users/${userId}`);
+        const uResp = await fetch(`https://users.roblox.com/v1/users/${userId}`, {
+          signal: AbortSignal.timeout(4000),
+        });
         if (uResp.ok) {
           const uJson = await uResp.json();
           username = uJson.name;
@@ -94,6 +166,7 @@ export async function fetchRobloxUserData(query) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ usernames: [sanitizedName], excludeBannedUsers: false }),
+        signal: AbortSignal.timeout(4000),
       });
 
       if (searchResp.ok) {
@@ -119,10 +192,12 @@ export async function fetchRobloxUserData(query) {
     try {
       const [headshotResp, avatarResp] = await Promise.all([
         fetch(
-          `https://thumbnails.roblox.com/v1/users/avatar-headshot?userIds=${userId}&size=720x720&format=Png&isCircular=false`
+          `https://thumbnails.roblox.com/v1/users/avatar-headshot?userIds=${userId}&size=720x720&format=Png&isCircular=false`,
+          { signal: AbortSignal.timeout(4000) }
         ),
         fetch(
-          `https://thumbnails.roblox.com/v1/users/avatar?userIds=${userId}&size=720x720&format=Png&isCircular=false`
+          `https://thumbnails.roblox.com/v1/users/avatar?userIds=${userId}&size=720x720&format=Png&isCircular=false`,
+          { signal: AbortSignal.timeout(4000) }
         ),
       ]);
 
@@ -136,7 +211,7 @@ export async function fetchRobloxUserData(query) {
       }
     } catch (_) {}
 
-    return {
+    const profileData = {
       userId: String(userId),
       username: username || cleanQuery,
       displayName: displayName || username || cleanQuery,
@@ -146,6 +221,13 @@ export async function fetchRobloxUserData(query) {
       headshotUrl,
       profileUrl: `https://www.roblox.com/users/${userId}/profile`,
     };
+
+    // Store in cache for instantaneous future retrievals
+    setCachedProfile(cleanQuery, profileData);
+    if (userId) setCachedProfile(userId, profileData);
+    if (username) setCachedProfile(username, profileData);
+
+    return profileData;
   } catch (err) {
     console.warn('[UOI Bot] Roblox API resolution notice:', err.message);
     return null;
@@ -154,9 +236,14 @@ export async function fetchRobloxUserData(query) {
 
 /**
  * Query Bloxlink API for guild-specific discord-to-roblox binding.
+ * Accelerated with in-memory caching.
  */
 async function queryBloxlink(guildId, discordUserId, apiKey) {
   if (!apiKey || !discordUserId) return null;
+  const cacheKey = `bloxlink:${guildId || 'global'}:${discordUserId}`;
+  const cached = getCachedBinding(cacheKey);
+  if (cached) return cached;
+
   try {
     const url = guildId
       ? `https://api.blox.link/v4/public/guilds/${guildId}/discord-to-roblox/${discordUserId}`
@@ -167,12 +254,15 @@ async function queryBloxlink(guildId, discordUserId, apiKey) {
         Authorization: apiKey,
         Accept: 'application/json',
       },
+      signal: AbortSignal.timeout(4000),
     });
 
     if (resp.ok) {
       const data = await resp.json();
       if (data && data.robloxId) {
-        return String(data.robloxId);
+        const rId = String(data.robloxId);
+        setCachedBinding(cacheKey, rId);
+        return rId;
       }
     }
   } catch (_) {}
@@ -181,9 +271,14 @@ async function queryBloxlink(guildId, discordUserId, apiKey) {
 
 /**
  * Query RoVer API for discord-to-roblox binding.
+ * Accelerated with in-memory caching.
  */
 async function queryRover(guildId, discordUserId, apiKey) {
   if (!apiKey || !discordUserId) return null;
+  const cacheKey = `rover:${guildId || 'global'}:${discordUserId}`;
+  const cached = getCachedBinding(cacheKey);
+  if (cached) return cached;
+
   try {
     const url = guildId
       ? `https://registry.rover.link/api/guilds/${guildId}/discord-to-roblox/${discordUserId}`
@@ -194,12 +289,15 @@ async function queryRover(guildId, discordUserId, apiKey) {
         Authorization: `Bearer ${apiKey}`,
         Accept: 'application/json',
       },
+      signal: AbortSignal.timeout(4000),
     });
 
     if (resp.ok) {
       const data = await resp.json();
       if (data && (data.robloxId || data.roblox_id)) {
-        return String(data.robloxId || data.roblox_id);
+        const rId = String(data.robloxId || data.roblox_id);
+        setCachedBinding(cacheKey, rId);
+        return rId;
       }
     }
   } catch (_) {}
