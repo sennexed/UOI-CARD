@@ -1,24 +1,53 @@
 {
-  "cards": {},
-  "serToUser": {},
+  "cards": {
+    "1126905502387933345": {
+      "discordId": "1126905502387933345",
+      "discordTag": "mightyestgod",
+      "guildId": "1126909194826682408",
+      "serialId": "UOI-2026-833074",
+      "fullName": "senne",
+      "robloxUsername": "senne",
+      "robloxUserId": "1031835",
+      "gender": "male",
+      "assignedRank": "COMMUNITY MEMBER",
+      "avatarUrl": "https://t4.rbxcdn.com/30DAY-AvatarHeadshot-D73985703EC10A39074C21C8E21A20DD-Png",
+      "robloxDetectionMethod": "Server Nickname Auto-Match",
+      "robloxDetectionConfidence": "High (Verified Roblox Profile)",
+      "robloxHasVerifiedBadge": false,
+      "issuedBy": {
+        "discordId": "1126905502387933345",
+        "discordTag": "mightyestgod"
+      },
+      "issuedAt": "2026-09-24T14:11:58.613Z",
+      "serverNickname": "senne [UOI-2026-833074]",
+      "status": "REVOKED",
+      "revokedAt": "2026-09-24T14:12:58.378Z",
+      "revokeReason": "duh i fed up"
+    }
+  },
+  "serToUser": {
+    "UOI-2026-833074": "1126905502387933345"
+  },
   "guilds": {
     "1126909194826682408": {
       "isSetup": true,
-      "autoConfigured": true,
+      "autoConfigured": false,
       "staffChannelId": "1549318102876168253",
       "staffChannelName": "mod-logs",
-      "deliveryChannelId": null,
-      "deliveryChannelName": null,
-      "staffRoleId": null,
-      "staffRoleName": null,
+      "deliveryChannelId": "1126909194826682415",
+      "deliveryChannelName": "general",
+      "staffRoleId": "1545837434695061626",
+      "staffRoleName": "Owner",
       "autoNickname": true,
-      "setupAt": "2026-09-21T08:06:07.797Z",
+      "setupAt": "2026-09-24T14:10:56.732Z",
       "setupBy": {
-        "discordId": "SYSTEM",
-        "discordTag": "Auto-Discovery"
+        "discordId": "1126905502387933345",
+        "discordTag": "mightyestgod"
       },
       "name": "UOI LABORATORY",
-      "guildId": "1126909194826682408"
+      "guildId": "1126909194826682408",
+      "bloxlinkApiKey": null,
+      "roverApiKey": null
     },
     "1467485915374162025": {
       "isSetup": true,
@@ -39,5 +68,70 @@
       "guildId": "1467485915374162025"
     }
   },
-  "pendingRequests": {}
+  "pendingRequests": {
+    "REQ-2026-8148": {
+      "id": "REQ-2026-8148",
+      "guildId": "1126909194826682408",
+      "targetUser": {
+        "id": "1126905502387933345",
+        "tag": "mightyestgod"
+      },
+      "applicantUser": {
+        "id": "1126905502387933345",
+        "tag": "mightyestgod"
+      },
+      "fullName": "senne",
+      "gender": "male",
+      "assignedRank": "COMMUNITY MEMBER",
+      "robloxUsername": "senne",
+      "robloxUserId": "1031835",
+      "robloxAvatarUrl": "https://t4.rbxcdn.com/30DAY-AvatarHeadshot-D73985703EC10A39074C21C8E21A20DD-Png",
+      "robloxDetectionMethod": "Server Nickname Auto-Match",
+      "robloxDetectionConfidence": "High (Verified Roblox Profile)",
+      "robloxHasVerifiedBadge": false,
+      "submittedAt": "2026-09-24T14:11:35.507Z",
+      "status": "APPROVED",
+      "declineReason": null,
+      "reviewedBy": {
+        "discordId": "1126905502387933345",
+        "discordTag": "mightyestgod"
+      },
+      "reviewedAt": "2026-09-24T14:11:58.613Z",
+      "issuedSerialId": "UOI-2026-833074",
+      "staffChannelId": "1549318102876168253",
+      "staffMessageId": "1552683926999408714"
+    },
+    "REQ-2026-9209": {
+      "id": "REQ-2026-9209",
+      "guildId": "1126909194826682408",
+      "targetUser": {
+        "id": "1126905502387933345",
+        "tag": "mightyestgod"
+      },
+      "applicantUser": {
+        "id": "1126905502387933345",
+        "tag": "mightyestgod"
+      },
+      "fullName": "hjhjhjjjhh112",
+      "gender": "male",
+      "assignedRank": "COMMUNITY MEMBER",
+      "robloxUsername": "senne",
+      "robloxUserId": "1031835",
+      "robloxAvatarUrl": "https://t4.rbxcdn.com/30DAY-AvatarHeadshot-D73985703EC10A39074C21C8E21A20DD-Png",
+      "robloxDetectionMethod": "UOI Central Registry Profile",
+      "robloxDetectionConfidence": "Permanent Database Match",
+      "robloxHasVerifiedBadge": false,
+      "submittedAt": "2026-09-24T14:13:13.507Z",
+      "status": "DECLINED",
+      "declineReason": "Uh this isn't me duh",
+      "reviewedBy": {
+        "discordId": "1126905502387933345",
+        "discordTag": "mightyestgod"
+      },
+      "reviewedAt": "2026-09-24T14:15:17.666Z",
+      "issuedSerialId": null,
+      "staffChannelId": "1549318102876168253",
+      "staffMessageId": "1552684338229813361"
+    }
+  }
 }

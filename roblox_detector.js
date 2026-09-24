@@ -78,6 +78,14 @@ function setCachedBinding(key, robloxId) {
   });
 }
 
+function isValidApiKey(key) {
+  if (!key || typeof key !== 'string') return false;
+  const k = key.trim();
+  if (k.startsWith('http://') || k.startsWith('https://')) return false;
+  if (k.includes(':') || k.includes('/') || k.includes(' ') || k.length < 8) return false;
+  return true;
+}
+
 /**
  * Clean and extract candidate Roblox username tokens from Discord nickname/name strings.
  * Enforces Roblox username specifications: 3-20 characters, [a-zA-Z0-9_], no consecutive underscores.
@@ -103,7 +111,6 @@ export function extractRobloxCandidates(rawStrings = []) {
 
     // 3. Split by common roleplay delimiters: |, -, –, —, /, \, •, :, ;, ~, #
     const tokenBuckets = [
-      str,
       strippedBrackets,
       ...str.split(/[|/\\•\-–—:;~#]+/g),
       ...strippedBrackets.split(/[|/\\•\-–—:;~#]+/g),
@@ -111,15 +118,67 @@ export function extractRobloxCandidates(rawStrings = []) {
 
     for (const token of tokenBuckets) {
       if (!token) continue;
-      // Strip leading and trailing non-alphanumeric chars
       const clean = token.replace(/^[^a-zA-Z0-9_]+|[^a-zA-Z0-9_]+$/g, '').trim();
 
-      // Check validity against Roblox username rules
       if (/^[a-zA-Z0-9_]{3,20}$/.test(clean)) {
-        // Must not consist solely of numbers under 1000 or stop words
         if (!STOP_WORDS.has(clean.toUpperCase())) {
           candidates.add(clean);
         }
+      }
+    }
+  }
+
+  return Array.from(candidates);
+}
+
+/**
+ * Extract candidate Roblox usernames ONLY from explicit server nickname formatting.
+ * Never blindly checks targetUser.username, globalName, or plain unstructured display names.
+ */
+export function extractRobloxNicknameCandidates(member, targetUser) {
+  const nickname = member?.nickname;
+  if (!nickname || typeof nickname !== 'string') return [];
+
+  const nick = nickname.trim();
+  if (!nick) return [];
+
+  const candidates = new Set();
+
+  // 1. Explicit @handle syntax: e.g. "Senne (@RealSenne)" or "@RealSenne"
+  const handleMatches = nick.matchAll(/@([a-zA-Z0-9_]{3,20})/g);
+  for (const m of handleMatches) {
+    const candidate = m[1];
+    if (!STOP_WORDS.has(candidate.toUpperCase())) {
+      candidates.add(candidate);
+    }
+  }
+
+  // 2. Explicit rbx: or roblox: prefix: e.g. "rbx:RealSenne" or "(rbx: RealSenne)"
+  const prefixMatches = nick.matchAll(/(?:rbx|roblox)\s*[:=]\s*([a-zA-Z0-9_]{3,20})/gi);
+  for (const m of prefixMatches) {
+    const candidate = m[1];
+    if (!STOP_WORDS.has(candidate.toUpperCase())) {
+      candidates.add(candidate);
+    }
+  }
+
+  // 3. Role tags with brackets/delimiters: e.g. "[PVT] RobloxPlayer", "RobloxPlayer | [Rank]"
+  const hasFormatting = /\[.*?\]|\(.*?\)|<.*?>|\{.*?\}|[|/\\•—~]/.test(nick);
+  if (hasFormatting) {
+    const stripped = nick.replace(/\[.*?\]|\(.*?\)|<.*?>|\{.*?\}/g, ' ').trim();
+    const parts = stripped.split(/[|/\\•\-–—:;~#]+/g);
+    for (const part of parts) {
+      const clean = part.replace(/^[^a-zA-Z0-9_]+|[^a-zA-Z0-9_]+$/g, '').trim();
+      if (/^[a-zA-Z0-9_]{3,20}$/.test(clean) && !STOP_WORDS.has(clean.toUpperCase())) {
+        const cleanLower = clean.toLowerCase();
+        const discordUserLower = (targetUser?.username || '').toLowerCase();
+        const discordGlobalLower = (targetUser?.globalName || '').toLowerCase();
+
+        // Prevent false positives: Must not match their bare Discord username/globalName without digits/underscores
+        if (cleanLower === discordUserLower && !/[0-9_]/.test(clean)) continue;
+        if (cleanLower === discordGlobalLower && !/[0-9_]/.test(clean)) continue;
+
+        candidates.add(clean);
       }
     }
   }
@@ -239,7 +298,7 @@ export async function fetchRobloxUserData(query) {
  * Accelerated with in-memory caching.
  */
 async function queryBloxlink(guildId, discordUserId, apiKey) {
-  if (!apiKey || !discordUserId) return null;
+  if (!isValidApiKey(apiKey) || !discordUserId) return null;
   const cacheKey = `bloxlink:${guildId || 'global'}:${discordUserId}`;
   const cached = getCachedBinding(cacheKey);
   if (cached) return cached;
@@ -274,7 +333,7 @@ async function queryBloxlink(guildId, discordUserId, apiKey) {
  * Accelerated with in-memory caching.
  */
 async function queryRover(guildId, discordUserId, apiKey) {
-  if (!apiKey || !discordUserId) return null;
+  if (!isValidApiKey(apiKey) || !discordUserId) return null;
   const cacheKey = `rover:${guildId || 'global'}:${discordUserId}`;
   const cached = getCachedBinding(cacheKey);
   if (cached) return cached;
@@ -314,8 +373,16 @@ function queryCentralRegistry(discordUserId) {
     if (fs.existsSync(dbPath)) {
       const raw = fs.readFileSync(dbPath, 'utf8');
       const db = JSON.parse(raw);
+      // Priority 1: Explicit permanent link created via /card link or verified generate
+      if (db.linkedAccounts?.[discordUserId]?.userId) {
+        return {
+          userId: String(db.linkedAccounts[discordUserId].userId),
+          username: db.linkedAccounts[discordUserId].username || null,
+        };
+      }
+      // Priority 2: Active issued card (never reuse revoked cards)
       const card = db.cards?.[discordUserId];
-      if (card && (card.robloxUserId || card.robloxUsername)) {
+      if (card && card.status === 'ACTIVE' && (card.robloxUserId || card.robloxUsername)) {
         return {
           userId: card.robloxUserId ? String(card.robloxUserId) : null,
           username: card.robloxUsername || null,
@@ -331,11 +398,12 @@ function queryCentralRegistry(discordUserId) {
  * 
  * Hierarchy:
  * 1. Manual User Input (if provided)
- * 2. Bloxlink API Guild Binding (if API key available)
- * 3. RoVer API Guild Binding (if API key available)
- * 4. UOI Database Historical Record (persisted card/profile)
- * 5. Smart Server Nickname / Display Name Pattern Matching -> Roblox Public API Verification
- * 6. Discord Username Pattern Match -> Roblox Public API Verification
+ * 2. Bloxlink API Guild Binding (if valid API key available)
+ * 3. RoVer API Guild Binding (if valid API key available)
+ * 4. UOI Database Permanent Link or Active Card
+ * 5. Explicit Server Nickname Syntax (e.g., @RobloxHandle or rbx:Username)
+ * 
+ * Note: Never blindly matches Discord usernames, global display names, or plain nicknames!
  */
 export async function autoDetectRobloxUser({
   member = null,
@@ -408,7 +476,7 @@ export async function autoDetectRobloxUser({
 
   // 2. Bloxlink API (if key present in env or server config)
   const bloxlinkKey = guildConfig?.bloxlinkApiKey || process.env.BLOXLINK_API_KEY;
-  if (bloxlinkKey && targetDiscordId) {
+  if (isValidApiKey(bloxlinkKey) && targetDiscordId) {
     const bloxRobloxId = await queryBloxlink(guildId, targetDiscordId, bloxlinkKey);
     if (bloxRobloxId) {
       const profile = await fetchRobloxUserData(bloxRobloxId);
@@ -425,7 +493,7 @@ export async function autoDetectRobloxUser({
 
   // 3. RoVer API (if key present in env or server config)
   const roverKey = guildConfig?.roverApiKey || process.env.ROVER_API_KEY;
-  if (roverKey && targetDiscordId) {
+  if (isValidApiKey(roverKey) && targetDiscordId) {
     const roverRobloxId = await queryRover(guildId, targetDiscordId, roverKey);
     if (roverRobloxId) {
       const profile = await fetchRobloxUserData(roverRobloxId);
@@ -440,7 +508,7 @@ export async function autoDetectRobloxUser({
     }
   }
 
-  // 4. Central UOI Registry Historical Memory
+  // 4. Central UOI Registry Historical Memory / Explicit Permanent Link
   if (targetDiscordId) {
     const registered = queryCentralRegistry(targetDiscordId);
     if (registered && (registered.userId || registered.username)) {
@@ -449,31 +517,23 @@ export async function autoDetectRobloxUser({
         return {
           ...profile,
           detected: true,
-          method: 'UOI Central Registry Profile',
+          method: 'UOI Verified Account Link',
           confidence: 'Permanent Database Match',
         };
       }
     }
   }
 
-  // 5. Smart Server Nickname & Display Name Pattern Match
-  const rawNames = [
-    member?.nickname,
-    member?.displayName,
-    targetUser?.globalName,
-    targetUser?.username,
-  ].filter(Boolean);
+  // 5. Strict Server Nickname Auto-Match (ONLY with explicit formatting e.g. @RobloxHandle or rbx:Username)
+  const nicknameCandidates = extractRobloxNicknameCandidates(member, targetUser);
 
-  const candidates = extractRobloxCandidates(rawNames);
-
-  if (candidates.length > 0) {
+  if (nicknameCandidates.length > 0) {
     try {
-      // Query up to 10 candidates in a single batch request to Roblox API
       const searchResp = await fetch('https://users.roblox.com/v1/usernames/users', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          usernames: candidates.slice(0, 10),
+          usernames: nicknameCandidates.slice(0, 5),
           excludeBannedUsers: false,
         }),
       });
@@ -483,27 +543,13 @@ export async function autoDetectRobloxUser({
         const matches = sJson.data || [];
 
         if (matches.length > 0) {
-          // Sort matches: prioritize exact matches with member nickname or display name
-          const memberNickLower = (member?.nickname || '').toLowerCase();
-          const memberDisplayLower = (member?.displayName || '').toLowerCase();
-
-          matches.sort((a, b) => {
-            const aName = a.name.toLowerCase();
-            const bName = b.name.toLowerCase();
-            const aInNick = memberNickLower.includes(aName) || memberDisplayLower.includes(aName);
-            const bInNick = memberNickLower.includes(bName) || memberDisplayLower.includes(bName);
-            if (aInNick && !bInNick) return -1;
-            if (!aInNick && bInNick) return 1;
-            return 0;
-          });
-
           const bestMatch = matches[0];
           const profile = await fetchRobloxUserData(bestMatch.id);
           if (profile) {
             return {
               ...profile,
               detected: true,
-              method: 'Server Nickname Auto-Match',
+              method: 'Server Nickname Explicit Tag',
               confidence: 'High (Verified Roblox Profile)',
               matchedCandidate: bestMatch.name,
             };
@@ -515,11 +561,11 @@ export async function autoDetectRobloxUser({
     }
   }
 
-  // Not detected
+  // Not detected - Do NOT assign a random stranger!
   return {
     detected: false,
     userId: null,
-    username: targetUser?.username || 'Unknown',
+    username: null,
     displayName: targetUser?.displayName || targetUser?.username || 'Unknown',
     hasVerifiedBadge: false,
     avatarUrl: targetUser?.displayAvatarURL ? targetUser.displayAvatarURL({ extension: 'png', size: 512 }) : null,

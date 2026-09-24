@@ -651,6 +651,36 @@ export const cardCommand = {
           opt.setName('roblox').setDescription('Or manually query a specific Roblox username or user ID')
         )
     )
+    // 2b. /card link (Permanently link Discord account to Roblox profile)
+    .addSubcommand((sub) =>
+      sub
+        .setName('link')
+        .setDescription('Permanently link your Discord account to your verified Roblox profile')
+        .addStringOption((opt) =>
+          opt
+            .setName('roblox')
+            .setDescription('Your exact Roblox username or Numerical User ID')
+            .setRequired(true)
+        )
+        .addUserOption((opt) =>
+          opt
+            .setName('citizen')
+            .setDescription('Citizen to link (Officers only - defaults to yourself)')
+            .setRequired(false)
+        )
+    )
+    // 2c. /card unlink (Unlink Roblox profile)
+    .addSubcommand((sub) =>
+      sub
+        .setName('unlink')
+        .setDescription('Unlink your registered Roblox profile from your Discord account')
+        .addUserOption((opt) =>
+          opt
+            .setName('citizen')
+            .setDescription('Citizen to unlink (Officers only - defaults to yourself)')
+            .setRequired(false)
+        )
+    )
     // 3. /card show (NEW: Pulls card of user from database)
     .addSubcommand((sub) =>
       sub
@@ -851,8 +881,8 @@ export const cardCommand = {
         staffRoleId: staffRole ? staffRole.id : null,
         staffRoleName: staffRole ? staffRole.name : null,
         autoNickname,
-        bloxlinkApiKey: bloxlinkApiKey ? bloxlinkApiKey.trim() : (db.guilds[guildId]?.bloxlinkApiKey || null),
-        roverApiKey: roverApiKey ? roverApiKey.trim() : (db.guilds[guildId]?.roverApiKey || null),
+        bloxlinkApiKey: bloxlinkApiKey && !bloxlinkApiKey.includes('http') && bloxlinkApiKey.trim().length >= 8 ? bloxlinkApiKey.trim() : (db.guilds[guildId]?.bloxlinkApiKey || null),
+        roverApiKey: roverApiKey && !roverApiKey.includes('http') && roverApiKey.trim().length >= 8 ? roverApiKey.trim() : (db.guilds[guildId]?.roverApiKey || null),
         setupAt: new Date().toISOString(),
         setupBy: {
           discordId: interaction.user.id,
@@ -1227,6 +1257,131 @@ export const cardCommand = {
     }
 
     // ==========================================
+    // COMMAND: /card link (Link Roblox Profile Permanently)
+    // ==========================================
+    if (sub === 'link') {
+      await interaction.deferReply();
+      const targetUser = interaction.options.getUser('citizen') || interaction.user;
+      const robloxQuery = interaction.options.getString('roblox');
+
+      // If linking someone else, check officer permissions
+      if (targetUser.id !== interaction.user.id) {
+        const isOfficer =
+          interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild) ||
+          interaction.memberPermissions?.has(PermissionFlagsBits.Administrator) ||
+          (guildConfig?.staffRoleId && interaction.member?.roles?.cache?.has(guildConfig.staffRoleId));
+
+        if (!isOfficer) {
+          return interaction.editReply({
+            content: '❌ You can only link your own Roblox account. Only officers can link accounts for other citizens.',
+            ephemeral: true,
+          });
+        }
+      }
+
+      const robloxData = await fetchRobloxUserData(robloxQuery);
+      if (!robloxData || !robloxData.userId) {
+        const errorEmbed = new EmbedBuilder()
+          .setTitle('❌ Roblox Account Not Found')
+          .setColor(0xef4444)
+          .setDescription(`Could not find a valid Roblox account matching **"${robloxQuery}"**. Please verify the spelling and try again.`)
+          .setFooter({ text: 'Roblox Public API Verification' })
+          .setTimestamp();
+        return interaction.editReply({ embeds: [errorEmbed] });
+      }
+
+      const db = loadDatabase();
+      db.linkedAccounts = db.linkedAccounts || {};
+      db.linkedAccounts[targetUser.id] = {
+        userId: robloxData.userId,
+        username: robloxData.username,
+        displayName: robloxData.displayName,
+        avatarUrl: robloxData.avatarUrl,
+        linkedAt: new Date().toISOString(),
+        linkedBy: {
+          id: interaction.user.id,
+          tag: interaction.user.tag,
+        },
+      };
+
+      // Also update active card in database if citizen already has one
+      if (db.cards[targetUser.id] && db.cards[targetUser.id].status === 'ACTIVE') {
+        db.cards[targetUser.id].robloxUsername = robloxData.username;
+        db.cards[targetUser.id].robloxUserId = robloxData.userId;
+        db.cards[targetUser.id].avatarUrl = robloxData.avatarUrl;
+      }
+
+      saveDatabase(db);
+
+      const linkEmbed = new EmbedBuilder()
+        .setTitle('✅ Roblox Account Linked Successfully!')
+        .setColor(0x10b981)
+        .setDescription(
+          `Successfully verified and linked <@${targetUser.id}> to Roblox profile **[@${robloxData.username}](https://www.roblox.com/users/${robloxData.userId}/profile)**!`
+        )
+        .addFields(
+          { name: 'Roblox Username', value: `@${robloxData.username}`, inline: true },
+          { name: 'Roblox User ID', value: `\`${robloxData.userId}\``, inline: true },
+          { name: 'Display Name', value: robloxData.displayName || robloxData.username, inline: true },
+          {
+            name: '✨ Next Steps',
+            value:
+              `• Run \`/card generate fullname:Your Name gender:Male\` without needing to type your Roblox username again.\n` +
+              `• Run \`/card whois\` to view your verified Roblox identity dossier.`,
+          }
+        )
+        .setFooter({ text: 'Union of Indians Registry • Anti-Impersonation Protection' })
+        .setTimestamp();
+
+      if (robloxData.avatarUrl) {
+        linkEmbed.setThumbnail(robloxData.avatarUrl);
+      }
+
+      return interaction.editReply({ embeds: [linkEmbed] });
+    }
+
+    // ==========================================
+    // COMMAND: /card unlink (Unlink Roblox Profile)
+    // ==========================================
+    if (sub === 'unlink') {
+      await interaction.deferReply();
+      const targetUser = interaction.options.getUser('citizen') || interaction.user;
+
+      if (targetUser.id !== interaction.user.id) {
+        const isOfficer =
+          interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild) ||
+          interaction.memberPermissions?.has(PermissionFlagsBits.Administrator) ||
+          (guildConfig?.staffRoleId && interaction.member?.roles?.cache?.has(guildConfig.staffRoleId));
+
+        if (!isOfficer) {
+          return interaction.editReply({
+            content: '❌ You can only unlink your own account. Only officers can unlink other citizens.',
+            ephemeral: true,
+          });
+        }
+      }
+
+      const db = loadDatabase();
+      if (db.linkedAccounts && db.linkedAccounts[targetUser.id]) {
+        const prev = db.linkedAccounts[targetUser.id];
+        delete db.linkedAccounts[targetUser.id];
+        saveDatabase(db);
+
+        const unlinkEmbed = new EmbedBuilder()
+          .setTitle('🔓 Roblox Account Unlinked')
+          .setColor(0xf59e0b)
+          .setDescription(`Unlinked previous Roblox account **@${prev.username}** from <@${targetUser.id}>.\nYou can link a new account anytime with \`/card link\`.`)
+          .setFooter({ text: 'Union of Indians Registry' })
+          .setTimestamp();
+        return interaction.editReply({ embeds: [unlinkEmbed] });
+      }
+
+      return interaction.editReply({
+        content: `ℹ️ No custom Roblox account was linked for <@${targetUser.id}>.`,
+      });
+    }
+
+    // ==========================================
     // COMMAND: /card show (Pull card from database)
     // ==========================================
     if (sub === 'show') {
@@ -1406,23 +1561,34 @@ export const cardCommand = {
         manualQuery: robloxQuery,
       });
 
-      if (!robloxInfo || (!robloxInfo.detected && !robloxQuery)) {
+      if (!robloxInfo || !robloxInfo.detected || !robloxInfo.userId) {
         const failedEmbed = new EmbedBuilder()
-          .setTitle('🔍 Roblox Auto-Detection: No Linked Account Found')
-          .setColor(0xef4444)
+          .setTitle('🔍 Roblox Account Verification Required')
+          .setColor(0xf59e0b)
           .setDescription(
-            `Could not automatically detect a linked Roblox account for **<@${targetUser.id}>**.\n\n` +
-            `Checked sources:\n` +
-            `• **Bloxlink API:** No active binding detected\n` +
-            `• **RoVer API:** No active binding detected\n` +
-            `• **UOI Central Registry:** No prior registered card\n` +
-            `• **Server Nickname:** No recognized Roblox username pattern (e.g. \`[Rank] Username\` or \`Username | Division\`)\n\n` +
-            `👉 **Quick Fix:** Re-run the command with your Roblox username explicitly:\n` +
-            `\`/card generate roblox:YourRobloxUsername fullname:${fullName} gender:${gender}\``
+            robloxQuery
+              ? `Could not find a valid Roblox account matching **"${robloxQuery}"**.\nPlease check the username spelling and try again!`
+              : `Could not automatically detect a verified Roblox account for **<@${targetUser.id}>**.\n\n` +
+                `To ensure the correct Roblox avatar and identity appear on your card (and prevent using anyone else's account), please supply your exact Roblox username:\n\n` +
+                `👉 **Re-run the command with \`roblox\`:**\n` +
+                `\`\`\`\n/card generate fullname:${fullName} gender:${gender} roblox:YourRobloxUsername\n\`\`\`\n` +
+                `💡 **Pro-Tip:** Run \`/card link roblox:YourRobloxUsername\` once, and the bot will remember your Roblox account permanently!`
           )
-          .setFooter({ text: 'Union of Indians Registry • Automated Verification Engine' })
+          .setFooter({ text: 'Union of Indians Registry • Anti-Impersonation Protection' })
           .setTimestamp();
         return interaction.editReply({ embeds: [failedEmbed] });
+      }
+
+      // Automatically remember/link verified Roblox account for future commands
+      if (robloxInfo.userId) {
+        db.linkedAccounts = db.linkedAccounts || {};
+        db.linkedAccounts[targetUser.id] = {
+          userId: robloxInfo.userId,
+          username: robloxInfo.username,
+          displayName: robloxInfo.displayName,
+          avatarUrl: robloxInfo.avatarUrl,
+          linkedAt: new Date().toISOString(),
+        };
       }
 
       const requestId = `REQ-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
