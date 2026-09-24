@@ -6,6 +6,7 @@
   "main": "index.js",
   "scripts": {
     "start": "node server.ts",
+    "start:sync": "bash start.sh",
     "dev": "node server.ts",
     "build": "mkdir -p dist && cp index.html dist/ 2>/dev/null || true",
     "lint": "node -e \"console.log('Lint check passed.')\""
