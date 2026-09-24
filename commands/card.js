@@ -621,16 +621,16 @@ export const cardCommand = {
         .setName('generate')
         .setDescription('Submit application for official UOI ID card (Auto-detects Roblox account!)')
         .addStringOption((opt) =>
-          opt
-            .setName('roblox')
-            .setDescription('Roblox Username/ID (Leave blank to AUTO-DETECT from Bloxlink/RoVer/Nickname!)')
-            .setRequired(false)
-        )
-        .addStringOption((opt) =>
           opt.setName('fullname').setDescription('Full Citizen Name').setRequired(true)
         )
         .addStringOption((opt) =>
           opt.setName('gender').setDescription('Gender (Male / Female / Other)').setRequired(true)
+        )
+        .addStringOption((opt) =>
+          opt
+            .setName('roblox')
+            .setDescription('Roblox Username/ID (Leave blank to AUTO-DETECT from Bloxlink/RoVer/Nickname!)')
+            .setRequired(false)
         )
         .addStringOption((opt) =>
           opt.setName('rank').setDescription('Rank / Role (e.g. PRESIDENT, PRIME MINISTER, COMMUNITY MEMBER)')

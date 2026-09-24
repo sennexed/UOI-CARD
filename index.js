@@ -1,5 +1,5 @@
 import 'dotenv/config';
-import { Client, GatewayIntentBits, REST, Routes } from 'discord.js';
+import { Client, GatewayIntentBits, REST, Routes, Events } from 'discord.js';
 import http from 'http';
 import fs from 'fs';
 import path from 'path';
@@ -373,7 +373,7 @@ if (!token || token === 'your_bot_token_here' || token.includes('your_token')) {
 
   globalThis.__uoiBotClient = client;
 
-  client.once('ready', async () => {
+  client.once(Events.ClientReady, async () => {
     console.log(`[UOI Bot] ✅ Successfully logged in as ${client.user.tag}`);
 
     // Register /card slash command with Discord REST API
