@@ -18,6 +18,8 @@ fi
 # 2. Fetch and force-reset to remote origin/main
 if [ -d ".git" ]; then
   echo "📥 [Git Sync] Syncing with origin/main..."
+  # Remove untracked template copies that might conflict with newly tracked remote versions
+  rm -f template.png public/template.png
   git fetch origin main || git fetch origin
   git reset --hard origin/main
   echo "✅ [Git Sync] Successfully synchronized working tree with origin/main."
