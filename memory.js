@@ -58,6 +58,7 @@ export function loadServerMemory(forceReload = false) {
       const parsed = JSON.parse(raw);
       if (parsed && typeof parsed.servers === 'object') {
         memory = parsed;
+        delete memory.servers['undefined'];
         loaded = true;
       }
     } catch (err) {
@@ -253,7 +254,7 @@ export function findBestStaffChannel(guild) {
  * Auto-detect and record server setup to save time with self-healing
  */
 export function autoDetectAndSaveSetup(guild, currentChannel = null) {
-  if (!guild) return null;
+  if (!guild || !guild.id || guild.id === 'undefined') return null;
   const memory = loadServerMemory();
   const existing = memory.servers[guild.id];
 
@@ -308,7 +309,7 @@ export function autoDetectAndSaveSetup(guild, currentChannel = null) {
  * Record a server into permanent memory
  */
 export function recordServer(guild, explicitSetup = null) {
-  if (!guild || !guild.id) return null;
+  if (!guild || !guild.id || guild.id === 'undefined') return null;
   const memory = loadServerMemory();
   const now = new Date().toISOString();
 
