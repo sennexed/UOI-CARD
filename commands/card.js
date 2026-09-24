@@ -707,13 +707,13 @@ export const cardCommand = {
         .addStringOption((opt) =>
           opt
             .setName('color')
-            .setDescription('Display Color Theme (Default: Orange, White & Green Gradient)')
+            .setDescription('Display Color Theme (Default: Dark Orange, White & Dark Green Gradient)')
             .setRequired(false)
             .addChoices(
-              { name: '🇮🇳 Tricolor (Orange, White & Green Gradient) [Default]', value: 'tiranga' },
+              { name: '🇮🇳 Tricolor (Dark Orange, White & Dark Green Gradient) [Default]', value: 'tiranga' },
               { name: '💠 UOI Cyan (#38BDF8)', value: 'cyan' },
-              { name: '🇮🇳 Saffron Gold (#F59E0B)', value: 'saffron' },
-              { name: '🌿 Emerald Green (#10B981)', value: 'emerald' },
+              { name: '🇮🇳 Deep Saffron (#D95700)', value: 'saffron' },
+              { name: '🌿 Dark Forest Green (#0D652D)', value: 'emerald' },
               { name: '🔮 Royal Purple (#8B5CF6)', value: 'purple' },
               { name: '🩸 Crimson Red (#EF4444)', value: 'crimson' }
             )
@@ -1667,19 +1667,19 @@ export const cardCommand = {
       const effectId = interaction.options.getInteger('effect') ?? 2; // Default: Gradient (Effect 2)
       const colorChoice = interaction.options.getString('color') ?? 'tiranga'; // Default: Tiranga Gradient
 
-      // Orange (Saffron: 0xFF9933), White (0xFFFFFF), Green (India Green: 0x138808)
-      let colors = [0xff9933, 0xffffff, 0x138808]; // Default Tiranga Orange, White & Green
-      let fallbackColors = [0xff9933, 0x138808];
+      // Dark Orange (Deep Saffron: 0xD95700), White (0xFFFFFF), Dark Green (Forest Green: 0x0D652D)
+      let colors = [0xd95700, 0xffffff, 0x0d652d]; // Default Tiranga Dark Orange, White & Dark Green
+      let fallbackColors = [0xd95700, 0x0d652d];
 
       if (colorChoice === 'cyan') {
         colors = [0x38bdf8];
         fallbackColors = [0x38bdf8];
       } else if (colorChoice === 'saffron') {
-        colors = [0xf59e0b];
-        fallbackColors = [0xf59e0b];
+        colors = [0xd95700];
+        fallbackColors = [0xd95700];
       } else if (colorChoice === 'emerald') {
-        colors = [0x10b981];
-        fallbackColors = [0x10b981];
+        colors = [0x0d652d];
+        fallbackColors = [0x0d652d];
       } else if (colorChoice === 'purple') {
         colors = [0x8b5cf6];
         fallbackColors = [0x8b5cf6];
@@ -1687,8 +1687,8 @@ export const cardCommand = {
         colors = [0xef4444];
         fallbackColors = [0xef4444];
       } else if (colorChoice === 'tiranga') {
-        colors = [0xff9933, 0xffffff, 0x138808]; // Orange, White, Green
-        fallbackColors = [0xff9933, 0x138808];    // Resilient fallback if API limits to 2
+        colors = [0xd95700, 0xffffff, 0x0d652d]; // Dark Orange, White, Dark Green
+        fallbackColors = [0xd95700, 0x0d652d];    // Resilient fallback if API limits to 2
       }
 
       const token = (process.env.DISCORD_TOKEN || '').trim();

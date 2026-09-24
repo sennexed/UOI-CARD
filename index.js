@@ -394,29 +394,29 @@ if (!token || token === 'your_bot_token_here' || token.includes('your_token')) {
       console.warn('[UOI Bot] Notice during guild memory sync:', memErr.message);
     }
 
-    // Apply Font 10 (Sinistre Vampyre) with Orange, White & Green Gradient Style across all servers
+    // Apply Font 10 (Sinistre Vampyre) with Dark Orange, White & Dark Green Gradient Style across all servers
     try {
-      console.log('[UOI Bot] 🎨 Applying Font 10 (Sinistre) with Orange, White & Green Gradient...');
+      console.log('[UOI Bot] 🎨 Applying Font 10 (Sinistre) with Dark Orange, White & Dark Green Gradient...');
       const guilds = await client.guilds.fetch();
       for (const [guildId, oauthGuild] of guilds) {
         try {
-          // Attempt with 3 colors: Orange, White, Green
+          // Attempt with 3 colors: Dark Orange, White, Dark Green
           await rest.patch(`/guilds/${guildId}/members/@me`, {
             body: {
               display_name_font_id: 10,        // 10th Font: Sinistre (Vampyre / Gothic)
               display_name_effect_id: 2,      // Gradient effect
-              display_name_colors: [0xff9933, 0xffffff, 0x138808], // Orange (#FF9933), White (#FFFFFF), Green (#138808)
+              display_name_colors: [0xd95700, 0xffffff, 0x0d652d], // Dark Orange (#D95700), White (#FFFFFF), Dark Green (#0D652D)
             },
           });
           console.log(`[UOI Bot] 🎨 Applied Font 10 Tricolor Gradient to: ${oauthGuild.name} (${guildId})`);
         } catch (firstErr) {
-          // If Discord API strictly restricts gradient array to max 2 items, fall back to Orange & Green
+          // If Discord API strictly restricts gradient array to max 2 items, fall back to Dark Orange & Dark Green
           try {
             await rest.patch(`/guilds/${guildId}/members/@me`, {
               body: {
                 display_name_font_id: 10,
                 display_name_effect_id: 2,
-                display_name_colors: [0xff9933, 0x138808], // Orange & Green
+                display_name_colors: [0xd95700, 0x0d652d], // Dark Orange & Dark Green
               },
             });
             console.log(`[UOI Bot] 🎨 Applied Font 10 Two-Tone Gradient to: ${oauthGuild.name} (${guildId})`);
@@ -445,7 +445,7 @@ if (!token || token === 'your_bot_token_here' || token.includes('your_token')) {
           body: {
             display_name_font_id: 10,
             display_name_effect_id: 2, // Gradient
-            display_name_colors: [0xff9933, 0xffffff, 0x138808], // Orange, White, Green
+            display_name_colors: [0xd95700, 0xffffff, 0x0d652d], // Dark Orange, White, Dark Green
           },
         });
       } catch (_) {
@@ -453,7 +453,7 @@ if (!token || token === 'your_bot_token_here' || token.includes('your_token')) {
           body: {
             display_name_font_id: 10,
             display_name_effect_id: 2,
-            display_name_colors: [0xff9933, 0x138808],
+            display_name_colors: [0xd95700, 0x0d652d],
           },
         });
       }
