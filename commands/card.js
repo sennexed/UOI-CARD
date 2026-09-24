@@ -395,6 +395,36 @@ function saveDatabase(db) {
 
 // resolveTemplateImage is imported directly from ../template_manager.js with 1-per-server isolation and auto-default generation
 
+// Helper: Generate real scannable Code 128 barcode buffer
+async function generateBarcodeImageBuffer(text) {
+  if (!text) return null;
+  try {
+    const bwipMod = await import('bwip-js');
+    const bwipjs = bwipMod?.default || bwipMod;
+    if (!bwipjs || typeof bwipjs.toBuffer !== 'function') return null;
+
+    const barcodeBuffer = await bwipjs.toBuffer({
+      bcid: 'code128',
+      text: String(text).trim().toUpperCase(),
+      scale: 3,
+      height: 12,
+      includetext: true,
+      textxalign: 'center',
+      textsize: 11,
+      textyoffset: 4,
+      textcolor: '0a0f1d',
+      barcolor: '0a0f1d',
+      backgroundcolor: 'ffffff',
+      paddingwidth: 12,
+      paddingheight: 4,
+    });
+    return barcodeBuffer;
+  } catch (err) {
+    console.warn('[UOI Bot] Real barcode generation warning:', err?.message || err);
+    return null;
+  }
+}
+
 // Helper: Render official 1200x900 UOI Citizen ID Card
 async function renderCardImage({
   guildId,
@@ -501,6 +531,51 @@ async function renderCardImage({
           ctx.restore();
         }
       }
+
+      // 6. REAL SCANNABLE BARCODE (Code 128)
+      // Generates and stamps a live, scannable Code 128 barcode directly onto the card
+      try {
+        const barcodeBuffer = await generateBarcodeImageBuffer(serialId);
+        if (barcodeBuffer) {
+          const barcodeImg = await safeLoadImage(barcodeBuffer);
+          if (barcodeImg) {
+            const bBoxX = 54;
+            const bBoxY = 758;
+            const bBoxW = 348;
+            const bBoxH = 100;
+
+            ctx.save();
+            ctx.fillStyle = '#FFFFFF';
+            ctx.beginPath();
+            if (typeof ctx.roundRect === 'function') {
+              ctx.roundRect(bBoxX, bBoxY, bBoxW, bBoxH, 4);
+            } else {
+              ctx.rect(bBoxX, bBoxY, bBoxW, bBoxH);
+            }
+            ctx.fill();
+
+            // Gold border matching rank badge & UOI card styling
+            ctx.strokeStyle = '#F59E0B';
+            ctx.lineWidth = 1.5;
+            ctx.stroke();
+
+            // Scale and center the barcode cleanly inside the white container
+            const padding = 6;
+            const availW = bBoxW - padding * 2;
+            const availH = bBoxH - padding * 2;
+            const scale = Math.min(availW / barcodeImg.width, availH / barcodeImg.height);
+            const drawW = Math.round(barcodeImg.width * scale);
+            const drawH = Math.round(barcodeImg.height * scale);
+            const drawX = Math.round(bBoxX + (bBoxW - drawW) / 2);
+            const drawY = Math.round(bBoxY + (bBoxH - drawH) / 2);
+
+            ctx.drawImage(barcodeImg, drawX, drawY, drawW, drawH);
+            ctx.restore();
+          }
+        }
+      } catch (bcErr) {
+        console.warn('[UOI Bot] Warning rendering real barcode:', bcErr?.message || bcErr);
+      }
     } else {
       // 2. FALLBACK DESIGN (Only if template image has not yet been set)
       const bgGrad = ctx.createLinearGradient(0, 0, 1200, 900);
@@ -543,6 +618,43 @@ async function renderCardImage({
           ctx.drawImage(avatarImg, 56, 260, 345, 380);
         }
       }
+
+      // Real scannable barcode in fallback design
+      try {
+        const barcodeBuffer = await generateBarcodeImageBuffer(serialId);
+        if (barcodeBuffer) {
+          const barcodeImg = await safeLoadImage(barcodeBuffer);
+          if (barcodeImg) {
+            const bBoxX = 56;
+            const bBoxY = 665;
+            const bBoxW = 345;
+            const bBoxH = 95;
+
+            ctx.save();
+            ctx.fillStyle = '#FFFFFF';
+            ctx.beginPath();
+            if (typeof ctx.roundRect === 'function') {
+              ctx.roundRect(bBoxX, bBoxY, bBoxW, bBoxH, 6);
+            } else {
+              ctx.rect(bBoxX, bBoxY, bBoxW, bBoxH);
+            }
+            ctx.fill();
+            ctx.strokeStyle = '#F59E0B';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+
+            const padding = 6;
+            const scale = Math.min((bBoxW - padding * 2) / barcodeImg.width, (bBoxH - padding * 2) / barcodeImg.height);
+            const drawW = Math.round(barcodeImg.width * scale);
+            const drawH = Math.round(barcodeImg.height * scale);
+            const drawX = Math.round(bBoxX + (bBoxW - drawW) / 2);
+            const drawY = Math.round(bBoxY + (bBoxH - drawH) / 2);
+
+            ctx.drawImage(barcodeImg, drawX, drawY, drawW, drawH);
+            ctx.restore();
+          }
+        }
+      } catch (_) {}
     }
 
     let buffer = null;
