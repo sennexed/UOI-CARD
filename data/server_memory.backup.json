@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "lastUpdated": "2026-09-23T09:21:58.675Z",
+  "lastUpdated": "2026-09-24T13:43:19.446Z",
   "servers": {
     "1126909194826682408": {
       "guildId": "1126909194826682408",
@@ -9,7 +9,7 @@
       "ownerId": "1126905502387933345",
       "memberCount": 10,
       "firstSeen": "2026-09-21T08:06:07.797Z",
-      "lastSeen": "2026-09-23T09:21:58.292Z",
+      "lastSeen": "2026-09-24T13:42:21.205Z",
       "isCurrentlyPresent": true,
       "setup": {
         "isSetup": true,
@@ -25,7 +25,9 @@
         "setupBy": {
           "discordId": "SYSTEM",
           "discordTag": "Auto-Discovery"
-        }
+        },
+        "name": "UOI LABORATORY",
+        "guildId": "1126909194826682408"
       },
       "stats": {
         "cardsIssued": 0,
@@ -39,13 +41,13 @@
       "ownerId": "1165528668211253318",
       "memberCount": 82,
       "firstSeen": "2026-09-23T08:28:48.777Z",
-      "lastSeen": "2026-09-23T09:21:58.675Z",
+      "lastSeen": "2026-09-24T13:42:21.569Z",
       "isCurrentlyPresent": true,
       "setup": {
         "isSetup": true,
         "autoConfigured": true,
-        "staffChannelId": "1492521564858744853",
-        "staffChannelName": "💼-finance-staff-lobby",
+        "staffChannelId": "1492521719846404096",
+        "staffChannelName": "office-of-the-finance-minister",
         "deliveryChannelId": null,
         "deliveryChannelName": null,
         "staffRoleId": null,
@@ -55,11 +57,37 @@
         "setupBy": {
           "discordId": "SYSTEM",
           "discordTag": "Auto-Discovery"
-        }
+        },
+        "name": "Union of Indians",
+        "guildId": "1467485915374162025"
       },
       "stats": {
         "cardsIssued": 0,
         "totalApplications": 0
+      }
+    },
+    "undefined": {
+      "guildId": "undefined",
+      "name": "UOI LABORATORY",
+      "firstSeen": "2026-09-21T08:06:07.797Z",
+      "lastSeen": "2026-09-24T13:43:19.446Z",
+      "isCurrentlyPresent": true,
+      "setup": {
+        "isSetup": true,
+        "autoConfigured": true,
+        "staffChannelId": "1549318102876168253",
+        "staffChannelName": "mod-logs",
+        "deliveryChannelId": null,
+        "deliveryChannelName": null,
+        "staffRoleId": null,
+        "staffRoleName": null,
+        "autoNickname": true,
+        "setupAt": "2026-09-21T08:06:07.797Z",
+        "setupBy": {
+          "discordId": "SYSTEM",
+          "discordTag": "Auto-Discovery"
+        },
+        "name": "UOI LABORATORY"
       }
     }
   }

@@ -259,7 +259,7 @@ export function autoDetectAndSaveSetup(guild, currentChannel = null) {
 
   // If already has setup, check if the configured staff channel is valid and accessible
   if (existing && existing.setup && existing.setup.isSetup && existing.setup.staffChannelId) {
-    const currentStaffChannel = guild.channels.cache?.get(existing.setup.staffChannelId);
+    const currentStaffChannel = guild.channels?.cache?.get ? guild.channels.cache.get(existing.setup.staffChannelId) : null;
     // If the channel exists and the bot can post in it, keep it
     if (currentStaffChannel && canBotPostInChannel(currentStaffChannel, guild)) {
       return existing.setup;

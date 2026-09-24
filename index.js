@@ -249,17 +249,20 @@ const requestHandler = async (req, res) => {
     return res.end(JSON.stringify(status));
   }
 
-  // API: Manual Git Pull & Server Restart
+  // API: Manual Git Pull & Server Restart (supports ?force=true)
   if (urlPath === '/api/git/sync' && req.method === 'POST') {
+    const isForce = parsedUrl.searchParams.get('force') === 'true';
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(
       JSON.stringify({
         success: true,
-        message: 'Sync initiated. Pulling latest code and restarting server...',
+        message: isForce
+          ? 'Force sync initiated. Resetting to remote origin and restarting...'
+          : 'Sync initiated. Pulling latest code and restarting server...',
       })
     );
-    pullLatestCode().then(() => {
-      gracefulRestart('Dashboard Manual Git Sync');
+    pullLatestCode({ force: isForce }).then(() => {
+      gracefulRestart(isForce ? 'Dashboard Force Git Reset' : 'Dashboard Manual Git Sync');
     });
     return;
   }

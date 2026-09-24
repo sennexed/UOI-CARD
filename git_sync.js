@@ -168,8 +168,13 @@ export function gracefulRestart(reason = 'Git Commit Auto-Deploy') {
 
 /**
  * Execute git pull on the server repository.
+ * If local untracked files conflict with incoming remote commits,
+ * or if force is enabled, it automatically executes git fetch & git reset --hard.
  */
-export async function pullLatestCode() {
+export async function pullLatestCode(options = {}) {
+  const force = options.force || process.env.GIT_FORCE_PULL === 'true';
+  const targetBranch = options.branch || currentGitState.branch || 'main';
+
   return new Promise((resolve) => {
     if (!fs.existsSync(path.join(process.cwd(), '.git'))) {
       return resolve({
@@ -178,8 +183,47 @@ export async function pullLatestCode() {
       });
     }
 
+    const runForceReset = (reason = 'forced') => {
+      console.log(`[Git Sync] Performing hard reset to origin/${targetBranch} (${reason})...`);
+      exec(`git fetch origin && git reset --hard origin/${targetBranch}`, { timeout: 35000 }, (fErr, fOut, fStderr) => {
+        if (fErr) {
+          console.error('[Git Sync] git reset --hard failed:', fErr.message);
+          return resolve({
+            success: false,
+            error: fErr.message,
+            output: fStderr || fOut,
+          });
+        }
+
+        console.log('[Git Sync] Successfully force-reset working tree to remote branch:\n', fOut);
+        initGitState();
+        resolve({
+          success: true,
+          forced: true,
+          output: fOut,
+        });
+      });
+    };
+
+    if (force) {
+      return runForceReset('GIT_FORCE_PULL enabled');
+    }
+
     exec('git pull', { timeout: 30000 }, (error, stdout, stderr) => {
       if (error) {
+        const errorOutput = `${stderr || ''}\n${stdout || ''}\n${error.message}`;
+        // Detect Git untracked merge conflict:
+        // "error: The following untracked working tree files would be overwritten by merge"
+        if (
+          errorOutput.includes('untracked working tree files') ||
+          errorOutput.includes('would be overwritten by merge') ||
+          errorOutput.includes('Please move or remove them before you merge')
+        ) {
+          console.warn('[Git Sync] ⚠️ Untracked files conflict detected with remote repository.');
+          console.warn('[Git Sync] ⚡ Auto-bypassing conflict with git fetch & git reset --hard origin/' + targetBranch);
+          return runForceReset('Overwriting conflicting untracked files');
+        }
+
         console.error('[Git Sync] git pull error:', error.message);
         return resolve({
           success: false,
