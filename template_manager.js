@@ -1,22 +1,37 @@
 import fs from 'fs';
 import path from 'path';
+import { createRequire } from 'module';
 import { loadServerMemory, saveServerMemory } from './memory.js';
 
-// Native Canvas Engine
+const require = createRequire(import.meta.url);
+
+// Native Canvas Engine with comprehensive resolution fallbacks
 let createCanvas = null;
 let loadImage = null;
+let ImageClass = null;
 
 try {
   const napi = await import('@napi-rs/canvas');
   createCanvas = napi?.createCanvas || napi?.default?.createCanvas || null;
   loadImage = napi?.loadImage || napi?.default?.loadImage || null;
+  ImageClass = napi?.Image || napi?.default?.Image || null;
 } catch (_) {}
 
-if (!createCanvas || typeof createCanvas !== 'function') {
+if (!createCanvas || typeof createCanvas !== 'function' || !loadImage || typeof loadImage !== 'function') {
+  try {
+    const napiReq = require('@napi-rs/canvas');
+    if (!createCanvas && typeof napiReq?.createCanvas === 'function') createCanvas = napiReq.createCanvas;
+    if (!loadImage && typeof napiReq?.loadImage === 'function') loadImage = napiReq.loadImage;
+    if (!ImageClass && napiReq?.Image) ImageClass = napiReq.Image;
+  } catch (_) {}
+}
+
+if (!createCanvas || typeof createCanvas !== 'function' || !loadImage || typeof loadImage !== 'function') {
   try {
     const nodeCanvas = await import('canvas');
-    createCanvas = nodeCanvas?.createCanvas || nodeCanvas?.default?.createCanvas || null;
-    loadImage = nodeCanvas?.loadImage || nodeCanvas?.default?.loadImage || null;
+    if (!createCanvas) createCanvas = nodeCanvas?.createCanvas || nodeCanvas?.default?.createCanvas || null;
+    if (!loadImage) loadImage = nodeCanvas?.loadImage || nodeCanvas?.default?.loadImage || null;
+    if (!ImageClass) ImageClass = nodeCanvas?.Image || nodeCanvas?.default?.Image || null;
   } catch (_) {}
 }
 
@@ -37,24 +52,42 @@ export function ensureTemplateDirectories() {
  */
 export async function safeDecodeImage(source) {
   if (!source) return null;
-  if (typeof loadImage !== 'function') return null;
 
-  try {
-    if (Buffer.isBuffer(source)) {
-      if (source.length === 0) return null;
+  // 1. Primary path: try loadImage if available
+  if (typeof loadImage === 'function') {
+    try {
+      if (Buffer.isBuffer(source)) {
+        if (source.length === 0) return null;
+        return await loadImage(source);
+      }
+      if (typeof source === 'string') {
+        if (!fs.existsSync(source)) return null;
+        const stat = fs.statSync(source);
+        if (stat.size === 0) return null;
+        return await loadImage(source);
+      }
       return await loadImage(source);
-    }
-    if (typeof source === 'string') {
-      if (!fs.existsSync(source)) return null;
-      const stat = fs.statSync(source);
-      if (stat.size === 0) return null;
-      return await loadImage(source);
-    }
-    return await loadImage(source);
-  } catch (err) {
-    console.warn('[UOI Bot] Image decode warning:', err.message);
-    return null;
+    } catch (_) {}
   }
+
+  // 2. Secondary fallback: use new Image() constructor if available
+  if (ImageClass) {
+    try {
+      let buf = null;
+      if (Buffer.isBuffer(source)) {
+        buf = source;
+      } else if (typeof source === 'string' && fs.existsSync(source)) {
+        buf = fs.readFileSync(source);
+      }
+      if (buf && buf.length > 0) {
+        const img = new ImageClass();
+        img.src = buf;
+        if (img.width && img.height) return img;
+      }
+    } catch (_) {}
+  }
+
+  return null;
 }
 
 /**

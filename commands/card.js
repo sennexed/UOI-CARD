@@ -14,6 +14,10 @@ import {
 } from 'discord.js';
 import fs from 'fs';
 import path from 'path';
+import { createRequire } from 'module';
+
+const require = createRequire(import.meta.url);
+
 import {
   loadServerMemory,
   saveServerMemory,
@@ -48,6 +52,7 @@ import {
 // High-Performance Native Canvas Engine (@napi-rs/canvas backed by Skia)
 let createCanvas = null;
 let loadImage = null;
+let ImageClass = null;
 let canvasEngineName = 'Safe Fallback (Embed Only)';
 let canvasFeatures = {
   engine: 'none',
@@ -60,6 +65,7 @@ try {
   const napi = await import('@napi-rs/canvas');
   createCanvas = napi?.createCanvas || napi?.default?.createCanvas || null;
   loadImage = napi?.loadImage || napi?.default?.loadImage || null;
+  ImageClass = napi?.Image || napi?.default?.Image || null;
 
   if (typeof createCanvas === 'function' && typeof loadImage === 'function') {
     canvasEngineName = '@napi-rs/canvas (Rust / Skia Engine)';
@@ -80,17 +86,33 @@ try {
   }
 } catch (_) {}
 
-// Secondary fallback: node-canvas if available in environment
-if (!createCanvas || typeof createCanvas !== 'function') {
+// Secondary fallback: CJS require
+if (!createCanvas || typeof createCanvas !== 'function' || !loadImage || typeof loadImage !== 'function') {
+  try {
+    const napiReq = require('@napi-rs/canvas');
+    if (!createCanvas && typeof napiReq?.createCanvas === 'function') {
+      createCanvas = napiReq.createCanvas;
+      canvasEngineName = '@napi-rs/canvas (CJS)';
+      canvasFeatures.engine = '@napi-rs/canvas';
+      canvasFeatures.skiaAccelerated = true;
+    }
+    if (!loadImage && typeof napiReq?.loadImage === 'function') loadImage = napiReq.loadImage;
+    if (!ImageClass && napiReq?.Image) ImageClass = napiReq.Image;
+  } catch (_) {}
+}
+
+// Tertiary fallback: node-canvas if available in environment
+if (!createCanvas || typeof createCanvas !== 'function' || !loadImage || typeof loadImage !== 'function') {
   try {
     const nodeCanvas = await import('canvas');
-    createCanvas = nodeCanvas?.createCanvas || nodeCanvas?.default?.createCanvas || null;
-    loadImage = nodeCanvas?.loadImage || nodeCanvas?.default?.loadImage || null;
-    if (typeof createCanvas === 'function') {
+    if (!createCanvas && typeof nodeCanvas?.createCanvas === 'function') {
+      createCanvas = nodeCanvas.createCanvas;
       canvasEngineName = 'node-canvas (Cairo)';
       canvasFeatures.engine = 'node-canvas';
       canvasFeatures.skiaAccelerated = false;
     }
+    if (!loadImage) loadImage = nodeCanvas?.loadImage || nodeCanvas?.default?.loadImage || null;
+    if (!ImageClass) ImageClass = nodeCanvas?.Image || nodeCanvas?.default?.Image || null;
   } catch (_) {}
 }
 
@@ -103,7 +125,7 @@ if (createCanvas && typeof createCanvas === 'function') {
 export function getCanvasEngineInfo() {
   return {
     engine: canvasEngineName,
-    available: typeof createCanvas === 'function' && typeof loadImage === 'function',
+    available: typeof createCanvas === 'function' && (typeof loadImage === 'function' || typeof ImageClass === 'function'),
     features: canvasFeatures,
   };
 }
@@ -111,31 +133,56 @@ export function getCanvasEngineInfo() {
 // Ultra-safe loadImage wrapper that NEVER throws "loadImage is not a function"
 async function safeLoadImage(source) {
   if (!source) return null;
-  if (typeof loadImage !== 'function') return null;
 
   try {
     // 1. Buffer input
     if (Buffer.isBuffer(source)) {
       if (source.length === 0) return null;
-      return await loadImage(source);
+      if (typeof loadImage === 'function') {
+        try { return await loadImage(source); } catch (_) {}
+      }
+      if (ImageClass) {
+        try {
+          const img = new ImageClass();
+          img.src = source;
+          if (img.width && img.height) return img;
+        } catch (_) {}
+      }
+      return null;
     }
 
     // 2. HTTP/HTTPS URL input: fetch with timeout to avoid hanging Discord interactions
     if (typeof source === 'string' && (source.startsWith('http://') || source.startsWith('https://'))) {
+      let buf = null;
       try {
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), 6000);
         const resp = await fetch(source, { signal: controller.signal });
         clearTimeout(timeout);
-        if (!resp.ok) return null;
-        const arrayBuffer = await resp.arrayBuffer();
-        const buf = Buffer.from(arrayBuffer);
-        if (!buf || buf.length === 0) return null;
-        return await loadImage(buf);
-      } catch (_) {
-        // Fallback to direct loadImage if fetch fails or aborts
-        return await loadImage(source).catch(() => null);
+        if (resp.ok) {
+          const arrayBuffer = await resp.arrayBuffer();
+          buf = Buffer.from(arrayBuffer);
+        }
+      } catch (_) {}
+
+      if (buf && buf.length > 0) {
+        if (typeof loadImage === 'function') {
+          try { return await loadImage(buf); } catch (_) {}
+        }
+        if (ImageClass) {
+          try {
+            const img = new ImageClass();
+            img.src = buf;
+            if (img.width && img.height) return img;
+          } catch (_) {}
+        }
       }
+
+      // Fallback to direct URL if loadImage accepts strings
+      if (typeof loadImage === 'function') {
+        try { return await loadImage(source); } catch (_) {}
+      }
+      return null;
     }
 
     // 3. File path string input
@@ -143,14 +190,29 @@ async function safeLoadImage(source) {
       if (!fs.existsSync(source)) return null;
       const stat = fs.statSync(source);
       if (stat.size === 0) return null;
-      return await loadImage(source);
+
+      if (typeof loadImage === 'function') {
+        try { return await loadImage(source); } catch (_) {}
+      }
+      if (ImageClass) {
+        try {
+          const fileBuf = fs.readFileSync(source);
+          const img = new ImageClass();
+          img.src = fileBuf;
+          if (img.width && img.height) return img;
+        } catch (_) {}
+      }
+      return null;
     }
 
-    return await loadImage(source);
+    if (typeof loadImage === 'function') {
+      try { return await loadImage(source); } catch (_) {}
+    }
   } catch (err) {
     console.warn('[UOI Bot] Safe image load notice:', err.message);
     return null;
   }
+  return null;
 }
 
 // Resilient pure-JS image dimension parser (works for PNG, JPEG, GIF, WebP without native binaries)
