@@ -679,7 +679,66 @@ async function renderCardImage({
   }
 }
 
+
+/**
+ * Determines if the interacting user is an authorized Owner:
+ * 1. Configured OWNER_ID / BOT_OWNER_ID in .env
+ * 2. Discord Server (Guild) Owner
+ * 3. Discord Bot Application Owner / Team Member
+ */
+export async function checkIsOwner(interaction) {
+  const userId = interaction.user?.id;
+  if (!userId) return false;
+
+  // 1. Configured Bot Owner ID(s) via environment
+  const envOwners = (process.env.OWNER_ID || process.env.BOT_OWNER_ID || "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (envOwners.includes(userId)) return true;
+
+  // 2. Server / Guild Owner
+  if (interaction.guild && interaction.guild.ownerId === userId) {
+    return true;
+  }
+
+  // 3. Discord Bot Application Owner / Team Member
+  try {
+    if (!interaction.client?.application?.owner) {
+      await interaction.client?.application?.fetch();
+    }
+    const appOwner = interaction.client?.application?.owner;
+    if (appOwner) {
+      if (appOwner.id === userId) return true;
+      if (appOwner.members && typeof appOwner.members.has === "function" && appOwner.members.has(userId)) return true;
+      if (appOwner.ownerId === userId) return true;
+    }
+  } catch {
+    // Non-fatal if fetch fails
+  }
+
+  return false;
+}
+
+/**
+ * Determines if the interacting user has Staff, Officer, Admin, or Owner permissions
+ */
+export async function checkIsStaffOrAdmin(interaction, guildConfig) {
+  if (await checkIsOwner(interaction)) return true;
+  const hasAdmin =
+    interaction.memberPermissions?.has(PermissionFlagsBits.Administrator) ||
+    interaction.member?.permissions?.has(PermissionFlagsBits.Administrator);
+  const hasManage =
+    interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild) ||
+    interaction.member?.permissions?.has(PermissionFlagsBits.ManageGuild);
+  const hasStaffRole =
+    guildConfig?.staffRoleId &&
+    interaction.member?.roles?.cache?.has(guildConfig.staffRoleId);
+  return Boolean(hasAdmin || hasManage || hasStaffRole);
+}
+
 export const cardCommand = {
+
   data: new SlashCommandBuilder()
     .setName('card')
     .setDescription('Official UOI Identification System')
@@ -687,7 +746,7 @@ export const cardCommand = {
     .addSubcommand((sub) =>
       sub
         .setName('setup')
-        .setDescription('Configure UOI ID Card routing and review channels for this server (Admins Only)')
+        .setDescription('Configure UOI ID Card routing and review channels for this server (Admins & Owner)')
         .addChannelOption((opt) =>
           opt
             .setName('staff_channel')
@@ -933,19 +992,19 @@ export const cardCommand = {
     .addSubcommand((sub) =>
       sub
         .setName('memory')
-        .setDescription('Inspect permanent server memory, saved channel setups, and persistent storage health')
+        .setDescription('Inspect permanent server memory, saved channel setups, and storage health (Owner Only)')
     )
     // 11. /card git-status (Inspect Git commit hash and auto-deploy status)
     .addSubcommand((sub) =>
       sub
         .setName('git-status')
-        .setDescription('Inspect Git repository commit hash, deployment status, and webhook auto-restart pipeline')
+        .setDescription('Inspect Git commit hash, deploy status, and webhook pipeline (Owner Only)')
     )
     // 12. /card git-sync (Pull latest Git commit and restart bot)
     .addSubcommand((sub) =>
       sub
         .setName('git-sync')
-        .setDescription('Pull latest Git commit and gracefully reboot/restart the server (Admins Only)')
+        .setDescription('Pull latest Git commit and gracefully reboot/restart the server (Owner Only)')
     ),
 
   async execute(interaction) {
@@ -1892,11 +1951,18 @@ export const cardCommand = {
     }
 
     // ==========================================
-    // COMMAND: /card inspect @user
+    // COMMAND: /card inspect @user (Staff & Admins)
     // ==========================================
     if (sub === 'inspect') {
-      const targetUser = interaction.options.getUser('user');
       const db = loadDatabase();
+      const hasPerm = await checkIsStaffOrAdmin(interaction, db.guilds?.[guildId]);
+      if (!hasPerm) {
+        return interaction.reply({
+          content: '❌ **Permission Denied:** Citizen dossiers and background inspect records can only be viewed by authorized staff officers and administrators.',
+          ephemeral: true,
+        });
+      }
+      const targetUser = interaction.options.getUser('user');
       const card = db.cards[targetUser.id];
 
       const embed = new EmbedBuilder()
@@ -1926,14 +1992,21 @@ export const cardCommand = {
     }
 
     // ==========================================
-    // COMMAND: /card promote
+    // COMMAND: /card promote (Staff & Admins)
     // ==========================================
     if (sub === 'promote') {
+      const db = loadDatabase();
+      const hasPerm = await checkIsStaffOrAdmin(interaction, db.guilds?.[guildId]);
+      if (!hasPerm) {
+        return interaction.reply({
+          content: '❌ **Permission Denied:** Only authorized officers, administrators, or the server owner can promote citizens.',
+          ephemeral: true,
+        });
+      }
       const targetUser = interaction.options.getUser('citizen');
       const newRank = interaction.options.getString('rank').toUpperCase();
       const reason = interaction.options.getString('reason') || 'Commendable service to the Union';
 
-      const db = loadDatabase();
       const card = db.cards[targetUser.id];
       if (card && card.status === 'ACTIVE') {
         card.assignedRank = newRank;
@@ -1956,13 +2029,20 @@ export const cardCommand = {
     }
 
     // ==========================================
-    // COMMAND: /card revoke
+    // COMMAND: /card revoke (Security & Admins)
     // ==========================================
     if (sub === 'revoke') {
+      const db = loadDatabase();
+      const hasPerm = await checkIsStaffOrAdmin(interaction, db.guilds?.[guildId]);
+      if (!hasPerm) {
+        return interaction.reply({
+          content: '❌ **Permission Denied:** Only authorized security officers, administrators, or the server owner can revoke citizen cards.',
+          ephemeral: true,
+        });
+      }
       const serial = interaction.options.getString('serial').toUpperCase();
       const reason = interaction.options.getString('reason');
 
-      const db = loadDatabase();
       const userId = db.serToUser?.[serial];
       if (userId && db.cards[userId]) {
         db.cards[userId].status = 'REVOKED';
@@ -2125,10 +2205,16 @@ export const cardCommand = {
     }
 
     // ==========================================
-    // COMMAND: /card memory (Inspect permanent memory & server setups)
+    // COMMAND: /card memory (Inspect permanent memory & server setups) [Owner Only]
     // ==========================================
     if (sub === 'memory') {
-      await interaction.deferReply({ ephemeral: false });
+      await interaction.deferReply({ ephemeral: true });
+      const isOwner = await checkIsOwner(interaction);
+      if (!isOwner) {
+        return interaction.editReply({
+          content: '❌ **Permission Denied:** Server memory and persistent storage diagnostics are restricted to the **Server Owner / Bot Owner** only.',
+        });
+      }
 
       const allServers = getAllServerRecords();
       const currentServerRecord = getServerRecord(guildId) || (interaction.guild ? recordServer(interaction.guild) : null);
@@ -2192,10 +2278,16 @@ export const cardCommand = {
     }
 
     // ==========================================
-    // COMMAND: /card git-status (Inspect Git & Auto-Deploy Pipeline)
+    // COMMAND: /card git-status (Inspect Git & Auto-Deploy Pipeline) [Owner Only]
     // ==========================================
     if (sub === 'git-status') {
-      await interaction.deferReply({ ephemeral: false });
+      await interaction.deferReply({ ephemeral: true });
+      const isOwner = await checkIsOwner(interaction);
+      if (!isOwner) {
+        return interaction.editReply({
+          content: '❌ **Permission Denied:** Git deployment pipeline status and repository diagnostics are restricted to the **Server Owner / Bot Owner** only.',
+        });
+      }
 
       const git = getGitStatus();
       const embed = new EmbedBuilder()
