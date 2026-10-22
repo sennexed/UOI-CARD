@@ -251,6 +251,43 @@ export function findBestStaffChannel(guild) {
 }
 
 /**
+ * Auto-detect the best staff/review role in a server
+ */
+export function findBestStaffRole(guild) {
+  if (!guild || !guild.roles || !guild.roles.cache) return null;
+  const roles = Array.from(guild.roles.cache.values()).filter(
+    (r) => r.id !== guild.id && r.name !== "@everyone" && !r.managed
+  );
+  if (roles.length === 0) return null;
+
+  const priorityPatterns = [
+    /card[-_]?review/i,
+    /card[-_]?staff/i,
+    /immigration/i,
+    /officer/i,
+    /reviewer/i,
+    /staff/i,
+    /moderator/i,
+    /admin/i,
+  ];
+
+  for (const pattern of priorityPatterns) {
+    const found = roles.find((r) => pattern.test(r.name));
+    if (found) return found;
+  }
+
+  // Fallback to role with ManageGuild or Administrator or ManageMessages
+  const permRole = roles.find(
+    (r) =>
+      r.permissions?.has("ManageGuild") ||
+      r.permissions?.has("Administrator") ||
+      r.permissions?.has("ManageMessages")
+  );
+  return permRole || null;
+}
+
+
+/**
  * Auto-detect and record server setup to save time with self-healing
  */
 export function autoDetectAndSaveSetup(guild, currentChannel = null) {
@@ -282,6 +319,7 @@ export function autoDetectAndSaveSetup(guild, currentChannel = null) {
   const staffChannel = findBestStaffChannel(guild) || currentChannel;
   const channelId = staffChannel ? staffChannel.id : (currentChannel ? currentChannel.id : null);
   const channelName = staffChannel ? staffChannel.name : (currentChannel ? currentChannel.name : 'general');
+  const autoStaffRole = findBestStaffRole(guild);
 
   const setupData = {
     isSetup: true,
@@ -290,8 +328,8 @@ export function autoDetectAndSaveSetup(guild, currentChannel = null) {
     staffChannelName: channelName,
     deliveryChannelId: null,
     deliveryChannelName: null,
-    staffRoleId: null,
-    staffRoleName: null,
+    staffRoleId: autoStaffRole ? autoStaffRole.id : null,
+    staffRoleName: autoStaffRole ? autoStaffRole.name : null,
     autoNickname: true,
     setupAt: new Date().toISOString(),
     setupBy: {

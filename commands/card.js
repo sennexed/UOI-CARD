@@ -25,6 +25,7 @@ import {
   autoDetectAndSaveSetup,
   getServerRecord,
   getAllServerRecords,
+  findBestStaffRole,
 } from '../memory.js';
 import {
   TEMPLATES_DIR,
@@ -721,6 +722,95 @@ export async function checkIsOwner(interaction) {
 }
 
 /**
+ * Automatically scans a guild member's Discord roles to determine their official citizen rank.
+ * Prioritizes hoisted, colored, or senior hierarchy roles.
+ * Filters out @everyone, bot roles, server booster, muted, or default utility roles.
+ */
+export function resolveCitizenRankFromRoles(member) {
+  if (!member || !member.roles || !member.roles.cache) {
+    return {
+      rankName: 'CITIZEN',
+      roleId: null,
+      roleName: 'Citizen',
+      isHoisted: false,
+      scannedRolesCount: 0,
+      allRoles: [],
+    };
+  }
+
+  // Get all roles except @everyone (supports Collection, Map, and Array)
+  const rawCache = member.roles.cache;
+  const rawList = typeof rawCache.values === 'function'
+    ? Array.from(rawCache.values())
+    : (Array.isArray(rawCache) ? rawCache : []);
+
+  const roles = rawList.filter((r) => r && r.id !== member.guild?.id && r.name !== '@everyone');
+  if (roles.length === 0) {
+    return {
+      rankName: 'CITIZEN',
+      roleId: null,
+      roleName: 'Citizen',
+      isHoisted: false,
+      scannedRolesCount: 0,
+      allRoles: [],
+    };
+  }
+
+  // Filter out system / bot integration / server booster / utility roles
+  const filteredRoles = roles.filter((r) => {
+    if (r.managed) return false;
+    if (r.tags?.premiumSubscriberRole) return false;
+    const lower = (r.name || '').toLowerCase();
+    if (
+      lower.includes('muted') ||
+      lower.includes('quarantine') ||
+      lower.includes('jail') ||
+      lower.includes('bot') ||
+      lower.includes('unverified')
+    ) {
+      return false;
+    }
+    return true;
+  });
+
+  const pool = filteredRoles.length > 0 ? filteredRoles : roles;
+
+  // Sort by Discord role hierarchy position descending (highest position first)
+  const sorted = [...pool].sort((a, b) => (b.position || 0) - (a.position || 0));
+
+  // Prefer hoisted role if one exists, otherwise take highest positioned role
+  const hoistedRole = sorted.find((r) => r.hoist);
+  const primaryRole = hoistedRole || sorted[0];
+
+  if (primaryRole) {
+    // Sanitize role name (strip decorative emojis if any, keep clean uppercase title)
+    const cleanName = primaryRole.name
+      .replace(/[\u{1F300}-\u{1F9FF}]/gu, '')
+      .replace(/[^a-zA-Z0-9\s\-_/]/g, '')
+      .trim()
+      .toUpperCase();
+
+    return {
+      rankName: cleanName.length >= 2 ? cleanName : primaryRole.name.toUpperCase().trim(),
+      roleId: primaryRole.id,
+      roleName: primaryRole.name,
+      isHoisted: Boolean(primaryRole.hoist),
+      scannedRolesCount: roles.length,
+      allRoles: roles.map((r) => r.name),
+    };
+  }
+
+  return {
+    rankName: 'CITIZEN',
+    roleId: null,
+    roleName: 'Citizen',
+    isHoisted: false,
+    scannedRolesCount: 0,
+    allRoles: [],
+  };
+}
+
+/**
  * Determines if the interacting user has Staff, Officer, Admin, or Owner permissions
  */
 export async function checkIsStaffOrAdmin(interaction, guildConfig) {
@@ -786,11 +876,11 @@ export const cardCommand = {
             .setRequired(false)
         )
     )
-    // 1. /card generate (Routes to staff review with Roblox Auto-Detection)
+    // 1. /card generate (Routes to staff review with Auto-Scanned Roles & Roblox Auto-Detection)
     .addSubcommand((sub) =>
       sub
         .setName('generate')
-        .setDescription('Submit application for official UOI ID card (Auto-detects Roblox account!)')
+        .setDescription('Submit ID card application (Auto-scans server role & Roblox profile!)')
         .addStringOption((opt) =>
           opt.setName('fullname').setDescription('Full Citizen Name').setRequired(true)
         )
@@ -802,9 +892,6 @@ export const cardCommand = {
             .setName('roblox')
             .setDescription('Roblox Username/ID (Leave blank to AUTO-DETECT from Bloxlink/RoVer/Nickname!)')
             .setRequired(false)
-        )
-        .addStringOption((opt) =>
-          opt.setName('rank').setDescription('Rank / Role (e.g. PRESIDENT, PRIME MINISTER, COMMUNITY MEMBER)')
         )
         .addUserOption((opt) =>
           opt.setName('citizen').setDescription('Target member (leave empty to apply for yourself)')
@@ -1036,6 +1123,8 @@ export const cardCommand = {
       const staffChannel = interaction.options.getChannel('staff_channel');
       const deliveryChannel = interaction.options.getChannel('delivery_channel');
       const staffRole = interaction.options.getRole('staff_role');
+      const autoStaffRole = (!staffRole && interaction.guild) ? findBestStaffRole(interaction.guild) : null;
+      const effectiveStaffRole = staffRole || autoStaffRole;
       const autoNickname = interaction.options.getBoolean('auto_nickname') ?? true;
       const bloxlinkApiKey = interaction.options.getString('bloxlink_api_key');
       const roverApiKey = interaction.options.getString('rover_api_key');
@@ -1049,8 +1138,9 @@ export const cardCommand = {
         staffChannelName: staffChannel.name,
         deliveryChannelId: deliveryChannel ? deliveryChannel.id : null,
         deliveryChannelName: deliveryChannel ? deliveryChannel.name : null,
-        staffRoleId: staffRole ? staffRole.id : null,
-        staffRoleName: staffRole ? staffRole.name : null,
+        staffRoleId: effectiveStaffRole ? effectiveStaffRole.id : null,
+        staffRoleName: effectiveStaffRole ? effectiveStaffRole.name : null,
+        autoStaffRoleDetected: !staffRole && !!autoStaffRole,
         autoNickname,
         bloxlinkApiKey: bloxlinkApiKey && !bloxlinkApiKey.includes('http') && bloxlinkApiKey.trim().length >= 8 ? bloxlinkApiKey.trim() : (db.guilds[guildId]?.bloxlinkApiKey || null),
         roverApiKey: roverApiKey && !roverApiKey.includes('http') && roverApiKey.trim().length >= 8 ? roverApiKey.trim() : (db.guilds[guildId]?.roverApiKey || null),
@@ -1652,7 +1742,18 @@ export const cardCommand = {
       const robloxQuery = interaction.options.getString('roblox');
       const fullName = interaction.options.getString('fullname');
       const gender = interaction.options.getString('gender');
-      const assignedRank = (interaction.options.getString('rank') || 'COMMUNITY MEMBER').toUpperCase();
+
+      // Target member in guild for role auto-scanning and nickname resolution
+      let targetMember = null;
+      if (interaction.guild) {
+        try {
+          targetMember = await interaction.guild.members.fetch(targetUser.id);
+        } catch (_) {}
+      }
+
+      // Automatically scan Discord server roles to determine genuine rank (no manual role typing or falsification)
+      const scannedRankInfo = resolveCitizenRankFromRoles(targetMember || interaction.member);
+      const assignedRank = scannedRankInfo.rankName;
 
       // STRICT RULE 1: Only 1 card per person!
       const db = loadDatabase();
@@ -1715,13 +1816,7 @@ export const cardCommand = {
         return interaction.editReply({ embeds: [embed] });
       }
 
-      // Target member in guild for nickname resolution
-      let targetMember = null;
-      if (interaction.guild) {
-        try {
-          targetMember = await interaction.guild.members.fetch(targetUser.id);
-        } catch (_) {}
-      }
+// targetMember already resolved and roles auto-scanned above
 
       // Auto-Detect or Verify Roblox Account
       const robloxInfo = await autoDetectRobloxUser({
@@ -1780,6 +1875,9 @@ export const cardCommand = {
         fullName,
         gender,
         assignedRank,
+        scannedRoleId: scannedRankInfo.roleId,
+        scannedRoleName: scannedRankInfo.roleName,
+        scannedRolesCount: scannedRankInfo.scannedRolesCount,
         robloxUsername: robloxInfo.username,
         robloxUserId: robloxInfo.userId,
         robloxAvatarUrl: robloxInfo.avatarUrl,
@@ -1814,7 +1912,13 @@ export const cardCommand = {
             .addFields(
               { name: 'Full Citizen Name', value: fullName, inline: true },
               { name: 'Gender', value: gender, inline: true },
-              { name: 'Requested Rank', value: `**${assignedRank}**`, inline: true },
+              {
+                name: '🎖️ Auto-Scanned Role',
+                value: scannedRankInfo.roleId
+                  ? `<@&${scannedRankInfo.roleId}> (\`${assignedRank}\`)`
+                  : `\`${assignedRank}\``,
+                inline: true,
+              },
               {
                 name: 'Roblox Identity',
                 value: robloxInfo.userId
@@ -1880,7 +1984,13 @@ export const cardCommand = {
               : `@${robloxInfo.username}`,
             inline: true,
           },
-          { name: 'Requested Rank', value: `**${assignedRank}**`, inline: true },
+          {
+            name: '🎖️ Auto-Scanned Server Role',
+            value: scannedRankInfo.roleId
+              ? `<@&${scannedRankInfo.roleId}> (\`${assignedRank}\`)`
+              : `\`${assignedRank}\``,
+            inline: true,
+          },
           {
             name: 'Staff Review Channel',
             value: `<#${guildConfig.staffChannelId}>`,

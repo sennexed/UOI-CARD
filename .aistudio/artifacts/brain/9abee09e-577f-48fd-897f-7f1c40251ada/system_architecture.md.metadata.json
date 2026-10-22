@@ -1,0 +1,5 @@
+{
+  "summary":  "Comprehensive technical architecture and system specifications document for the UOI Card Generation and Registry Bot. Details data flow, Canvas rendering pipeline, multi-server template isolation, permanent memory persistence, RBAC permission tiers, and automated Git synchronization.",
+  "updatedAt":  "2026-10-22T07:59:06.969817754Z",
+  "userFacing":  true
+}
