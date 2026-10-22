@@ -340,6 +340,27 @@ export function loadDatabase(forceReload = false) {
     }
   } catch (_) {}
 
+  // Multi-Server Card Isolation Migration:
+  // Migrate any legacy flat cards into server-partitioned keys
+  parsed.serverCards = parsed.serverCards || {};
+  if (parsed.cards && typeof parsed.cards === 'object') {
+    for (const [key, card] of Object.entries(parsed.cards)) {
+      if (card && card.guildId && !key.includes('_')) {
+        const gId = card.guildId;
+        const uId = card.discordId || key;
+        const compKey = `${gId}_${uId}`;
+        parsed.cards[compKey] = card;
+        parsed.serverCards[gId] = parsed.serverCards[gId] || {};
+        parsed.serverCards[gId][uId] = card;
+        if (card.serialId) {
+          parsed.serToUser = parsed.serToUser || {};
+          parsed.serToUser[card.serialId] = { userId: uId, guildId: gId };
+        }
+        delete parsed.cards[key];
+      }
+    }
+  }
+
   _cachedCardsDb = parsed;
   return parsed;
 }
@@ -390,6 +411,127 @@ export function saveDatabase(db) {
       saveServerMemory(memory);
     }
   } catch (_) {}
+}
+
+
+/**
+ * Server-isolated card lookup:
+ * Returns the card for a specific user within a specific guild (server).
+ */
+export function getGuildCard(db, guildId, userId) {
+  if (!db || !userId) return null;
+  // 1. Check nested server structure: db.serverCards[guildId][userId]
+  if (guildId && db.serverCards && db.serverCards[guildId] && db.serverCards[guildId][userId]) {
+    return db.serverCards[guildId][userId];
+  }
+  // 2. Check composite key: db.cards[`${guildId}_${userId}`]
+  if (guildId && db.cards && db.cards[`${guildId}_${userId}`]) {
+    return db.cards[`${guildId}_${userId}`];
+  }
+  // 3. Check legacy flat db.cards[userId] ONLY if card.guildId matches this guildId
+  if (db.cards && db.cards[userId]) {
+    const legacyCard = db.cards[userId];
+    if (guildId && legacyCard.guildId && legacyCard.guildId === guildId) {
+      return legacyCard;
+    }
+  }
+  return null;
+}
+
+/**
+ * Server-isolated card store:
+ * Stores the card specifically scoped to this guild and user.
+ */
+export function setGuildCard(db, guildId, userId, cardRecord) {
+  if (!db || !userId) return;
+  cardRecord.guildId = guildId || cardRecord.guildId || null;
+
+  if (guildId) {
+    db.serverCards = db.serverCards || {};
+    db.serverCards[guildId] = db.serverCards[guildId] || {};
+    db.serverCards[guildId][userId] = cardRecord;
+
+    db.cards = db.cards || {};
+    db.cards[`${guildId}_${userId}`] = cardRecord;
+    if (db.cards[userId] && db.cards[userId].guildId === guildId) {
+      delete db.cards[userId];
+    }
+  } else {
+    db.cards = db.cards || {};
+    db.cards[userId] = cardRecord;
+  }
+
+  if (cardRecord.serialId) {
+    db.serToUser = db.serToUser || {};
+    db.serToUser[cardRecord.serialId] = {
+      userId,
+      guildId: guildId || null,
+    };
+  }
+}
+
+/**
+ * Resolve a card by its unique Serial ID across all servers.
+ */
+export function resolveCardBySerial(db, serial) {
+  if (!db || !serial) return null;
+  const s = String(serial).trim().toUpperCase();
+  const entry = db.serToUser?.[s];
+
+  if (entry) {
+    if (typeof entry === 'object' && entry.userId) {
+      const found = getGuildCard(db, entry.guildId, entry.userId);
+      if (found) return found;
+    } else if (typeof entry === 'string') {
+      const all = getAllGuildCards(db);
+      const match = all.find((c) => c.serialId?.toUpperCase() === s);
+      if (match) return match;
+      if (db.cards?.[entry] && db.cards[entry].serialId?.toUpperCase() === s) {
+        return db.cards[entry];
+      }
+    }
+  }
+
+  // Fallback scan across all cards
+  const allCards = getAllGuildCards(db);
+  return allCards.find((c) => c.serialId?.toUpperCase() === s) || null;
+}
+
+/**
+ * Returns all cards for a specific guild, or all cards globally if guildId is null.
+ */
+export function getAllGuildCards(db, guildId = null) {
+  if (!db) return [];
+  const list = [];
+  const seenSerials = new Set();
+
+  if (db.serverCards && typeof db.serverCards === 'object') {
+    for (const [gId, userMap] of Object.entries(db.serverCards)) {
+      if (guildId && gId !== guildId) continue;
+      if (userMap && typeof userMap === 'object') {
+        for (const card of Object.values(userMap)) {
+          if (card && card.serialId && !seenSerials.has(card.serialId)) {
+            seenSerials.add(card.serialId);
+            list.push(card);
+          }
+        }
+      }
+    }
+  }
+
+  if (db.cards && typeof db.cards === 'object') {
+    for (const [key, card] of Object.entries(db.cards)) {
+      if (!card || !card.serialId || seenSerials.has(card.serialId)) continue;
+      if (guildId) {
+        if (card.guildId && card.guildId !== guildId) continue;
+        if (key.includes('_') && !key.startsWith(`${guildId}_`)) continue;
+      }
+      seenSerials.add(card.serialId);
+      list.push(card);
+    }
+  }
+
+  return list;
 }
 
 // Roblox Account Resolution & Multi-Tier Auto-Detection are imported directly from ../roblox_detector.js
@@ -525,6 +667,8 @@ export async function renderCardImage({
   clearanceLevel = null,
   issuedAt = null,
   issuedOfficerTag = null,
+  isServerSpecific = false,
+  serverName = null,
 }) {
   if (!createCanvas || typeof createCanvas !== 'function') {
     return { buffer: null, usedTemplate: false, source: 'canvas-library-disabled' };
@@ -557,6 +701,40 @@ export async function renderCardImage({
       ctx.font = 'bold 14px "Nimbus Mono PS", "Liberation Mono", "Courier New", Courier, monospace';
       ctx.fillText(serialId, 1010, 36);
       ctx.restore();
+
+      // Server-Specific Credential Badge / Flag on Card Graphic
+      if (isServerSpecific) {
+        ctx.save();
+        const badgeX = 875;
+        const badgeY = 46;
+        const badgeW = 270;
+        const badgeH = 26;
+
+        ctx.fillStyle = 'rgba(8, 13, 25, 0.90)';
+        ctx.beginPath();
+        if (typeof ctx.roundRect === 'function') {
+          ctx.roundRect(badgeX, badgeY, badgeW, badgeH, 6);
+        } else {
+          ctx.rect(badgeX, badgeY, badgeW, badgeH);
+        }
+        ctx.fill();
+
+        ctx.strokeStyle = '#F59E0B'; // Gold border
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+
+        // Status indicator dot
+        ctx.fillStyle = '#10B981'; // Emerald
+        ctx.beginPath();
+        ctx.arc(badgeX + 13, badgeY + 13, 4, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = '#F8FAFC';
+        ctx.font = 'bold 10px "Liberation Sans", -apple-system, sans-serif';
+        const displayLabel = `SERVER-SPECIFIC • ${(serverName || 'LOCAL JURISDICTION').toUpperCase().slice(0, 16)}`;
+        ctx.fillText(displayLabel, badgeX + 24, badgeY + 17);
+        ctx.restore();
+      }
 
       // Rank Box below portrait
       const rankBoxX = 54;
@@ -758,6 +936,37 @@ export async function renderCardImage({
       ctx.fillStyle = '#38bdf8';
       ctx.font = 'bold 16px monospace';
       ctx.fillText(serialId, 895, 91);
+
+      if (isServerSpecific) {
+        ctx.save();
+        const badgeX = 820;
+        const badgeY = 108;
+        const badgeW = 320;
+        const badgeH = 28;
+
+        ctx.fillStyle = 'rgba(245, 158, 11, 0.15)';
+        ctx.beginPath();
+        if (typeof ctx.roundRect === 'function') {
+          ctx.roundRect(badgeX, badgeY, badgeW, badgeH, 6);
+        } else {
+          ctx.rect(badgeX, badgeY, badgeW, badgeH);
+        }
+        ctx.fill();
+        ctx.strokeStyle = '#F59E0B';
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+
+        ctx.fillStyle = '#34D399';
+        ctx.beginPath();
+        ctx.arc(badgeX + 14, badgeY + 14, 4, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = '#FFFFFF';
+        ctx.font = 'bold 11px monospace';
+        const sName = (serverName || 'LOCAL').toUpperCase().slice(0, 18);
+        ctx.fillText(`SERVER-SPECIFIC • ${sName}`, badgeX + 26, badgeY + 18);
+        ctx.restore();
+      }
 
       const fields = [
         { label: 'FULL CITIZEN NAME', value: fullName },
@@ -1780,10 +1989,11 @@ export const cardCommand = {
       };
 
       // Also update active card in database if citizen already has one
-      if (db.cards[targetUser.id] && db.cards[targetUser.id].status === 'ACTIVE') {
-        db.cards[targetUser.id].robloxUsername = robloxData.username;
-        db.cards[targetUser.id].robloxUserId = robloxData.userId;
-        db.cards[targetUser.id].avatarUrl = robloxData.avatarUrl;
+      const targetCard = getGuildCard(db, guildId, targetUser.id);
+      if (targetCard && targetCard.status === 'ACTIVE') {
+        targetCard.robloxUsername = robloxData.username;
+        targetCard.robloxUserId = robloxData.userId;
+        targetCard.avatarUrl = robloxData.avatarUrl;
       }
 
       saveDatabase(db);
@@ -1862,26 +2072,80 @@ export const cardCommand = {
     if (sub === 'show') {
       await interaction.deferReply();
       const targetUser = interaction.options.getUser('citizen') || interaction.user;
+      const isSelf = targetUser.id === interaction.user.id;
 
+      // 1. Implicitly detect server context
+      const guildId = interaction.guildId;
+      const serverName = interaction.guild?.name || (guildId ? `Server ${guildId}` : 'Current Server');
       const db = loadDatabase();
-      const card = db.cards[targetUser.id];
 
-      if (!card || card.status === 'REVOKED') {
-        const embed = new EmbedBuilder()
-          .setTitle('🔍 UOI Central Registry Search')
-          .setColor(0xEF4444)
-          .setDescription(`No active UOI Citizen ID card found in the database for <@${targetUser.id}>.`)
+      // Retrieve all active cards for this citizen across all UOI servers
+      const allCitizenCards = getAllGuildCards(db).filter(
+        (c) => c.discordId === targetUser.id && c.status === 'ACTIVE'
+      );
+      const distinctGuildsWithCards = Array.from(new Set(allCitizenCards.map((c) => c.guildId).filter(Boolean)));
+      const hasOtherServerCards = distinctGuildsWithCards.some((gId) => gId !== guildId);
+      const isServerSpecific = hasOtherServerCards || (distinctGuildsWithCards.length > 1);
+
+      // Look up card specifically for this server context
+      const card = getGuildCard(db, guildId, targetUser.id);
+
+      if (!card || card.status !== 'ACTIVE') {
+        const isRevokedInThisServer = card?.status === 'REVOKED';
+
+        if (hasOtherServerCards) {
+          // User has citizenship in other servers, but NOT in this server!
+          const otherCardsSummary = allCitizenCards.map((c) => {
+            const issuer = db.guilds?.[c.guildId]?.name || (c.guildId ? `Server ${c.guildId}` : 'Union Central');
+            return `• **${issuer}**: Serial \`${c.serialId}\` (${c.assignedRank})`;
+          }).join('\n');
+
+          const multiServerNotFoundEmbed = new EmbedBuilder()
+            .setTitle(`🔍 No Active Card in ${serverName}`)
+            .setColor(0xf59e0b)
+            .setDescription(
+              isSelf
+                ? `**You do not have an active citizen card registered in ${serverName}.**\n\n` +
+                  `🌐 **Server-Specific Citizenship Detected:**\n` +
+                  `You currently hold active citizenship in other servers:\n${otherCardsSummary}\n\n` +
+                  `Because cards and roles are **server-specific**, each server maintains an independent registry. ` +
+                  `Run \`/card apply\` or \`/card generate\` to obtain your official credentials for **${serverName}**!`
+                : `**<@${targetUser.id}> does not possess a citizen card registered in ${serverName}.**\n\n` +
+                  `🌐 **Other Server Registries:**\n${otherCardsSummary}`
+            )
+            .addFields(
+              { name: 'Server Context', value: `\`${serverName}\``, inline: true },
+              { name: 'This Server Status', value: isRevokedInThisServer ? '🔴 REVOKED' : '⚪ Unregistered', inline: true },
+              { name: 'Total Union Citizenships', value: `${allCitizenCards.length} server(s)`, inline: true }
+            )
+            .setFooter({ text: 'Union of Indians Registry • Per-Server Context Enforced' })
+            .setTimestamp();
+
+          return interaction.editReply({ embeds: [multiServerNotFoundEmbed] });
+        }
+
+        // User has no cards in any server
+        const notFoundEmbed = new EmbedBuilder()
+          .setTitle(`🔍 UOI Central Registry Search: ${serverName}`)
+          .setColor(0xef4444)
+          .setDescription(
+            isSelf
+              ? `No active UOI Citizen ID card found in **${serverName}** for <@${targetUser.id}>.\n\n` +
+                `Submit an application using \`/card apply\` or \`/card generate\` to receive your official credentials!`
+              : `<@${targetUser.id}> does not have an active citizen card on file in **${serverName}**.`
+          )
           .addFields(
             { name: 'Target Citizen', value: `<@${targetUser.id}> (\`${targetUser.tag}\`)`, inline: true },
-            { name: 'Registry Status', value: card?.status === 'REVOKED' ? '🔴 REVOKED' : '⚪ Unregistered', inline: true },
-            { name: 'Issuance Protocol', value: 'An authorized officer can issue a card using `/card generate`.' }
+            { name: 'Registry Status', value: isRevokedInThisServer ? '🔴 REVOKED' : '⚪ Unregistered', inline: true },
+            { name: 'Issuance Protocol', value: 'An authorized officer can issue a card using `/card generate` or approve an application from `/card apply`.' }
           )
-          .setFooter({ text: 'Union of Indians Central Registry Database' })
+          .setFooter({ text: `Union of Indians Central Registry • ${serverName}` })
           .setTimestamp();
-        return interaction.editReply({ embeds: [embed] });
+
+        return interaction.editReply({ embeds: [notFoundEmbed] });
       }
 
-      // Render the citizen's card on demand using the server's official template
+      // 2. Render card with server context & Server-Specific flag
       let cardBuffer = null;
       let usedTemplate = false;
       let templateSource = null;
@@ -1895,6 +2159,11 @@ export const cardCommand = {
           assignedRank: card.assignedRank,
           serialId: card.serialId,
           avatarUrl: card.avatarUrl,
+          division: card.division || 'Civilian Directorate',
+          clearanceLevel: card.clearanceLevel,
+          issuedAt: card.issuedAt,
+          isServerSpecific,
+          serverName,
         });
         cardBuffer = renderResult.buffer;
         usedTemplate = renderResult.usedTemplate;
@@ -1909,7 +2178,7 @@ export const cardCommand = {
       const embed = new EmbedBuilder()
         .setTitle(`🛡️ UOI Citizen ID Card: ${card.fullName}`)
         .setColor(0x10b981)
-        .setDescription(`Official identity credential retrieved from database for <@${card.discordId}>`)
+        .setDescription(`Official identity credential retrieved from registry for <@${card.discordId}>`)
         .addFields(
           { name: 'Card Serial ID', value: `\`${card.serialId}\``, inline: true },
           { name: 'Citizen', value: `<@${card.discordId}>`, inline: true },
@@ -1921,21 +2190,37 @@ export const cardCommand = {
             inline: true,
           },
           { name: 'Rank Tier', value: `**${card.assignedRank}**`, inline: true },
-          { name: 'Gender', value: card.gender || 'N/A', inline: true },
-          { name: 'Issuing Officer', value: `<@${card.issuedBy?.discordId || card.issuedBy}>`, inline: true },
+          { name: 'Division', value: card.division || 'Civilian Directorate', inline: true },
+          { name: 'Clearance', value: `\`${card.clearanceLevel || 'Level I'}\``, inline: true },
           {
-            name: 'Issued Date',
-            value: `<t:${Math.floor(new Date(card.issuedAt).getTime() / 1000)}:f>`,
+            name: '🏷️ Credential Scope',
+            value: isServerSpecific
+              ? `🌐 **SERVER-SPECIFIC FLAG**\n*Scoped to **${serverName}***`
+              : `🏛️ **Standard Registry**\n*${serverName}*`,
             inline: true,
           },
-          { name: 'Registry Status', value: '🟢 ACTIVE & VERIFIED', inline: true }
-        )
-        .setFooter({
-          text: usedTemplate
-            ? `Central Database Record • Stamped with ${templateSource}`
-            : 'Central Database Record • Union of Indians',
-        })
-        .setTimestamp();
+          { name: 'Registry Status', value: '🟢 ACTIVE & VERIFIED', inline: true },
+          {
+            name: 'Issued Date',
+            value: card.issuedAt ? `<t:${Math.floor(new Date(card.issuedAt).getTime() / 1000)}:f>` : 'Recent',
+            inline: true,
+          }
+        );
+
+      if (hasOtherServerCards) {
+        embed.addFields({
+          name: '🌍 Multi-Server Citizenships',
+          value: `Member holds **${allCitizenCards.length}** distinct server-specific cards across UOI communities. ` +
+                 `Ranks, roles, and card designs are strictly isolated per server.`,
+          inline: false,
+        });
+      }
+
+      embed.setFooter({
+        text: isServerSpecific
+          ? `Server-Specific Credential • ${serverName} • Verified Context`
+          : `Central Database Record • ${serverName} • Union of Indians`,
+      }).setTimestamp();
 
       if (cardBuffer) {
         const attachment = new AttachmentBuilder(cardBuffer, { name: fileName });
@@ -1972,7 +2257,7 @@ export const cardCommand = {
 
       // STRICT RULE 1: Only 1 card per person!
       const db = loadDatabase();
-      const existingCard = db.cards[targetUser.id];
+      const existingCard = getGuildCard(db, guildId, targetUser.id);
       if (existingCard && existingCard.status === 'ACTIVE') {
         const embed = new EmbedBuilder()
           .setTitle('⚠️ Card Generation Blocked: 1 Card Per Person')
@@ -2007,7 +2292,7 @@ export const cardCommand = {
 
       // Check if citizen already has a pending request awaiting review
       const existingPending = Object.values(db.pendingRequests || {}).find(
-        (r) => r.status === 'PENDING' && r.targetUser?.id === targetUser.id
+        (r) => r.status === 'PENDING' && r.guildId === guildId && r.targetUser?.id === targetUser.id
       );
       if (existingPending) {
         const embed = new EmbedBuilder()
@@ -2444,8 +2729,7 @@ export const cardCommand = {
     if (sub === 'verify') {
       const serial = interaction.options.getString('serial').toUpperCase();
       const db = loadDatabase();
-      const userId = db.serToUser?.[serial];
-      const card = userId ? db.cards[userId] : null;
+      const card = resolveCardBySerial(db, serial);
 
       if (!card) {
         const embed = new EmbedBuilder()
@@ -2570,13 +2854,25 @@ export const cardCommand = {
       const serial = interaction.options.getString('serial').toUpperCase();
       const reason = interaction.options.getString('reason');
 
-      const userId = db.serToUser?.[serial];
-      if (userId && db.cards[userId]) {
-        db.cards[userId].status = 'REVOKED';
-        db.cards[userId].revokedAt = new Date().toISOString();
-        db.cards[userId].revokeReason = reason;
-        saveDatabase(db);
+      const card = resolveCardBySerial(db, serial);
+      if (!card) {
+        return interaction.editReply({
+          content: `❌ Card with Serial ID \`${serial}\` was not found in the registry.`,
+        });
       }
+
+      // Ensure officers can only revoke cards issued within their own server
+      if (guildId && card.guildId && card.guildId !== guildId) {
+        const issuerName = db.guilds?.[card.guildId]?.name || `Server ${card.guildId}`;
+        return interaction.editReply({
+          content: `❌ **Permission Denied:** Serial \`${serial}\` was issued by another server (**${issuerName}**).\nYou can only revoke cards issued within **${interaction.guild?.name || 'this server'}**!`,
+        });
+      }
+
+      card.status = 'REVOKED';
+      card.revokedAt = new Date().toISOString();
+      card.revokeReason = reason;
+      saveDatabase(db);
 
       const embed = new EmbedBuilder()
         .setTitle('🚨 UOI Citizen ID Card REVOKED')
@@ -2750,7 +3046,8 @@ export const cardCommand = {
 
       const configuredCount = allServers.filter((s) => s.setup?.isSetup).length;
       const autoCount = allServers.filter((s) => s.setup?.autoConfigured).length;
-      const totalCards = Object.keys(db.cards || {}).length;
+      const totalCards = getAllGuildCards(db).length;
+      const guildCardsCount = getAllGuildCards(db, guildId).length;
 
       const isSetup = guildSetup && guildSetup.isSetup;
       const staffChannelText = guildSetup?.staffChannelId ? `<#${guildSetup.staffChannelId}> (\`${guildSetup.staffChannelName || 'channel'}\`)` : '*Not Set*';
@@ -2995,9 +3292,7 @@ export const cardCommand = {
         serverNickname,
         status: 'ACTIVE',
       };
-      db.cards[req.targetUser.id] = newCardRecord;
-      db.serToUser = db.serToUser || {};
-      db.serToUser[serialId] = req.targetUser.id;
+      setGuildCard(db, guildId, req.targetUser.id, newCardRecord);
 
       // Update pending request status
       req.status = 'APPROVED';

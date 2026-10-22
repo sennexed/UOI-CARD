@@ -3,7 +3,7 @@ import { Client, GatewayIntentBits, REST, Routes, Events } from 'discord.js';
 import http from 'http';
 import fs from 'fs';
 import path from 'path';
-import { cardCommand, getCanvasEngineInfo, loadDatabase } from './commands/card.js';
+import { cardCommand, getCanvasEngineInfo, loadDatabase, resolveCardBySerial, getGuildCard, getAllGuildCards } from './commands/card.js';
 import {
   syncGuildsMemory,
   recordServer,
@@ -89,12 +89,12 @@ const requestHandler = async (req, res) => {
     let card = null;
 
     if (serial) {
-      const uId = db.serToUser?.[serial];
-      if (uId && db.cards[uId]) card = db.cards[uId];
+      card = resolveCardBySerial(db, serial);
     } else if (robloxId) {
-      card = Object.values(db.cards || {}).find(c => String(c.robloxUserId) === String(robloxId));
+      const all = getAllGuildCards(db, guildId);
+      card = all.find(c => String(c.robloxUserId) === String(robloxId));
     } else if (discordId) {
-      card = db.cards?.[discordId] || null;
+      card = getGuildCard(db, guildId, discordId) || (!guildId ? getAllGuildCards(db).find(c => c.discordId === discordId) : null);
     }
 
     if (!card) {
@@ -142,8 +142,7 @@ const requestHandler = async (req, res) => {
     const db = loadDatabase();
     let card = null;
     if (querySerial) {
-      const uId = db.serToUser?.[querySerial];
-      if (uId && db.cards[uId]) card = db.cards[uId];
+      card = resolveCardBySerial(db, querySerial);
     }
 
     const isValid = !!card && card.status === 'ACTIVE';

@@ -52,11 +52,12 @@ The **Union of Indians (UOI) ID Card Data Processor** is an enterprise-grade Dis
 
 ## 3. Storage & Memory Subsystems
 
-### 3.1 Persistent Server Memory (`data/server_memory.json`)
-The bot implements permanent multi-server memory. Every guild that invites the bot is indexed with its configuration:
-* **Guild Configuration**: Staff review channel ID, card delivery channel ID, staff reviewer role ID, auto-nickname toggle, custom Roblox API keys.
-* **Auto-Discovery**: Automatic fallback detection of channels named `#staff`, `#card-approval`, `#deliveries`, `#citizenship` if not manually configured.
-* **Atomic File Swapping**: Memory writes execute via temporary buffer write (`.tmp`) followed by atomic rename (`fs.renameSync`) to ensure zero database corruption during container restarts or crash events.
+### 3.1 Persistent Server Memory & Multi-Server Card Isolation
+The bot implements strict multi-tenant server isolation:
+* **Per-Server Card Registries**: Cards, citizenship dossiers, and ranks are completely isolated per server (`guildId`). A user's card issued in Server A is scoped solely to Server A (`db.serverCards[guildId][userId]`). When they join Server B, they have no card in Server B until approved by Server B's officers.
+* **Per-Server Roles & Templates**: Cards render exclusively with that specific server's scanned Discord roles and that server's uploaded template (`templates/<GuildID>.png`).
+* **Guild Configuration**: Staff review channel ID, delivery channel ID, verified role ID, audit channel ID, auto-nickname toggle.
+* **Atomic File Swapping**: Memory and cards writes execute via temporary buffer write (`.tmp`) followed by atomic rename (`fs.renameSync`) to ensure zero database corruption during container restarts or crash events.
 * **Automated Redundant Backups**: Maintained at `data/server_memory.backup.json`.
 
 ### 3.2 Isolated Template Memory (`templates/`)

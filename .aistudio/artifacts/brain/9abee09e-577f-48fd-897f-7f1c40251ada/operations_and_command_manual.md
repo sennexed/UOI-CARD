@@ -76,28 +76,17 @@ Opens a native Discord form modal prompting for:
 ```
 Allows existing cardholders to refresh their card graphic with their latest Roblox 3D avatar headshot (e.g. changed outfits or accessories) and latest Discord server role while preserving their exact same unique Serial ID!
 
-### Step 3: Staff Approval / Rejection
-Staff members with the configured role or administrator permissions will see the application embed with action buttons:
-* **✅ Approve & Issue**: Generates the final card with an official serial number and barcode, saves the entry in the persistent database, announces the card in `#citizen-cards`, updates the user's server nickname, and DMs the citizen.
-* **❌ Reject**: Opens a reason dialog and notifies the applicant with feedback.
-
----
-
-## 4. Administrative & Security Commands
-
-### Promoting a Citizen
+### Inspecting Active Citizen Card
 ```
-/card promote citizen:@user rank:Senior Officer reason:Exemplary field service
+/card show [citizen:@user]
 ```
-Updates the citizen's database record and card badge rank.
+* **Implicit Server Context Detection**: The bot automatically resolves the current server's citizenship registry and active custom template.
+* **Server-Specific Credential Flag**:
+  * If a citizen holds active cards across multiple servers (e.g. Server A as *Commandant* and Server B as *Cadet*), the card graphic dynamically renders a prominent **`SERVER-SPECIFIC • [SERVER NAME]`** security flag in gold and emerald.
+  * The Discord embed highlights the jurisdiction scope and lists how many distinct server-specific cards the member holds.
+  * If the citizen does not have a card in the current server, the command cleanly indicates this and lists the other servers where they hold registered citizenship, preventing cross-server confusion.
 
-### Revoking a Card
-```
-/card revoke serial:UOI-2026-849201 reason:Disciplinary discharge
-```
-Marks the serial ID as **REVOKED & BLACKLISTED**. Any future verification attempts will flag the card as invalid.
-
-### Inspecting Citizen Records
+### Inspecting Citizen Records (Staff/Officers)
 ```
 /card inspect user:@user
 ```

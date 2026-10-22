@@ -1,6 +1,6 @@
 {
   "cards": {
-    "1126905502387933345": {
+    "1126909194826682408_1126905502387933345": {
       "discordId": "1126905502387933345",
       "discordTag": "mightyestgod",
       "guildId": "1126909194826682408",
@@ -26,7 +26,10 @@
     }
   },
   "serToUser": {
-    "UOI-2026-833074": "1126905502387933345"
+    "UOI-2026-833074": {
+      "userId": "1126905502387933345",
+      "guildId": "1126909194826682408"
+    }
   },
   "guilds": {
     "1126909194826682408": {
@@ -132,6 +135,34 @@
       "issuedSerialId": null,
       "staffChannelId": "1549318102876168253",
       "staffMessageId": "1552684338229813361"
+    }
+  },
+  "serverCards": {
+    "1126909194826682408": {
+      "1126905502387933345": {
+        "discordId": "1126905502387933345",
+        "discordTag": "mightyestgod",
+        "guildId": "1126909194826682408",
+        "serialId": "UOI-2026-833074",
+        "fullName": "senne",
+        "robloxUsername": "senne",
+        "robloxUserId": "1031835",
+        "gender": "male",
+        "assignedRank": "COMMUNITY MEMBER",
+        "avatarUrl": "https://t4.rbxcdn.com/30DAY-AvatarHeadshot-D73985703EC10A39074C21C8E21A20DD-Png",
+        "robloxDetectionMethod": "Server Nickname Auto-Match",
+        "robloxDetectionConfidence": "High (Verified Roblox Profile)",
+        "robloxHasVerifiedBadge": false,
+        "issuedBy": {
+          "discordId": "1126905502387933345",
+          "discordTag": "mightyestgod"
+        },
+        "issuedAt": "2026-09-24T14:11:58.613Z",
+        "serverNickname": "senne [UOI-2026-833074]",
+        "status": "REVOKED",
+        "revokedAt": "2026-09-24T14:12:58.378Z",
+        "revokeReason": "duh i fed up"
+      }
     }
   }
 }
