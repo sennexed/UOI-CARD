@@ -305,7 +305,7 @@ try {
   process.on('SIGTERM', () => { flushCardsDbSync(); process.exit(0); });
 } catch (_) {}
 
-function loadDatabase(forceReload = false) {
+export function loadDatabase(forceReload = false) {
   if (_cachedCardsDb && !forceReload) {
     return _cachedCardsDb;
   }
@@ -344,7 +344,7 @@ function loadDatabase(forceReload = false) {
   return parsed;
 }
 
-function saveDatabase(db) {
+export function saveDatabase(db) {
   _cachedCardsDb = db;
   _cardsIsDirty = true;
 
@@ -426,8 +426,93 @@ async function generateBarcodeImageBuffer(text) {
   }
 }
 
+
+// Helper: Generate real high-density verification QR code buffer
+export async function generateQrCodeImageBuffer(text) {
+  if (!text) return null;
+  try {
+    const bwipMod = await import('bwip-js');
+    const bwipjs = bwipMod?.default || bwipMod;
+    if (!bwipjs || typeof bwipjs.toBuffer !== 'function') return null;
+
+    const qrBuffer = await bwipjs.toBuffer({
+      bcid: 'qrcode',
+      text: String(text).trim(),
+      scale: 3,
+      padding: 1,
+    });
+    return qrBuffer;
+  } catch (err) {
+    console.warn('[UOI Bot] Real QR code generation warning:', err?.message || err);
+    return null;
+  }
+}
+
+// Helper: Determine Security Clearance Level from Rank and Division
+export function computeClearanceLevel(rank, division) {
+  const r = (rank || '').toUpperCase();
+  const d = (division || '').toUpperCase();
+  if (r.includes('PRESIDENT') || r.includes('PRIME MINISTER') || r.includes('DIRECTOR') || d.includes('HIGH COMMAND')) {
+    return 'LEVEL V (UNION DIRECTORATE)';
+  }
+  if (r.includes('COMMANDANT') || r.includes('GENERAL') || r.includes('COLONEL') || r.includes('CHIEF') || r.includes('ADMIN')) {
+    return 'LEVEL IV (EXECUTIVE SECURE)';
+  }
+  if (r.includes('OFFICER') || r.includes('SECURITY') || r.includes('INSPECTOR') || r.includes('CAPTAIN') || d.includes('SECURITY') || d.includes('ARMED')) {
+    return 'LEVEL III (SECURITY OPERATIVE)';
+  }
+  if (r.includes('CADET') || r.includes('CONSTABLE') || r.includes('STAFF') || r.includes('SPECIALIST') || d.includes('CIVIL')) {
+    return 'LEVEL II (CIVIL SERVICE)';
+  }
+  return 'LEVEL I (GENERAL CITIZEN)';
+}
+
+// Helper: Dispatch Audit Log Embed to designated Audit Channel
+export async function dispatchAuditLog(guild, guildConfig, { event, citizenUser, officerUser, serialId, reason, fields = [] }) {
+  if (!guild) return;
+  try {
+    let auditChannel = null;
+    if (guildConfig?.auditChannelId) {
+      auditChannel = await guild.channels.fetch(guildConfig.auditChannelId).catch(() => null);
+    }
+    if (!auditChannel && guild.channels?.cache) {
+      auditChannel = guild.channels.cache.find(c =>
+        c.isTextBased && c.isTextBased() &&
+        /card[-_]?logs|registry[-_]?logs|audit[-_]?log/i.test(c.name)
+      );
+    }
+    if (!auditChannel || !auditChannel.isTextBased()) return;
+
+    const eventColors = {
+      CARD_ISSUED: 0x10b981,
+      CARD_DECLINED: 0xef4444,
+      CARD_PROMOTED: 0x3b82f6,
+      CARD_REVOKED: 0xdc2626,
+      CARD_REFRESHED: 0x06b6d4,
+    };
+
+    const embed = new EmbedBuilder()
+      .setTitle(`📜 Registry Audit: ${event.replace('_', ' ')}`)
+      .setColor(eventColors[event] || 0x38bdf8)
+      .addFields(
+        { name: 'Event', value: `\`${event}\``, inline: true },
+        { name: 'Citizen', value: citizenUser ? `<@${citizenUser.id || citizenUser}>` : 'N/A', inline: true },
+        { name: 'Officer', value: officerUser ? `<@${officerUser.id || officerUser}>` : 'System', inline: true },
+      );
+
+    if (serialId) embed.addFields({ name: 'Serial ID', value: `\`${serialId}\``, inline: true });
+    if (reason) embed.addFields({ name: 'Reason / Justification', value: reason });
+    if (fields.length) embed.addFields(...fields);
+
+    embed.setFooter({ text: 'UOI Central Registry Security Audit' }).setTimestamp();
+    await auditChannel.send({ embeds: [embed] }).catch(() => {});
+  } catch (err) {
+    console.warn('[UOI Bot] Error dispatching audit log:', err.message);
+  }
+}
+
 // Helper: Render official 1200x900 UOI Citizen ID Card
-async function renderCardImage({
+export async function renderCardImage({
   guildId,
   fullName,
   robloxUsername,
@@ -436,6 +521,10 @@ async function renderCardImage({
   assignedRank,
   serialId,
   avatarUrl,
+  division = null,
+  clearanceLevel = null,
+  issuedAt = null,
+  issuedOfficerTag = null,
 }) {
   if (!createCanvas || typeof createCanvas !== 'function') {
     return { buffer: null, usedTemplate: false, source: 'canvas-library-disabled' };
@@ -577,6 +666,78 @@ async function renderCardImage({
       } catch (bcErr) {
         console.warn('[UOI Bot] Warning rendering real barcode:', bcErr?.message || bcErr);
       }
+
+      // Compute Extended Identity & Security Metadata
+      const clearance = clearanceLevel || computeClearanceLevel(assignedRank, division);
+      const effectiveDivision = (division || (
+        (assignedRank || '').includes('OFFICER') || (assignedRank || '').includes('SECURITY') || (assignedRank || '').includes('COMMAND')
+          ? 'HOMELAND SECURITY & BORDER CORPS'
+          : 'CIVILIAN DIRECTORATE'
+      )).toUpperCase();
+      const issueDate = issuedAt ? new Date(issuedAt) : new Date();
+      const formattedIssue = issueDate.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }).toUpperCase();
+      const formattedExpiry = 'VALID THRU: ' + new Date(issueDate.getTime() + 2 * 365 * 24 * 3600 * 1000).toLocaleDateString('en-GB', { month: 'short', year: 'numeric' }).toUpperCase();
+
+      // Render Clearance, Division & Issue Dates on the right-hand identity panel
+      ctx.save();
+      ctx.fillStyle = '#F59E0B';
+      ctx.font = 'bold 13px "Liberation Sans", -apple-system, sans-serif';
+      ctx.fillText(`CLEARANCE: ${clearance}`, fieldX + 18, 752);
+
+      ctx.fillStyle = '#38BDF8';
+      ctx.font = 'bold 12px "Liberation Sans", -apple-system, sans-serif';
+      ctx.fillText(`DIVISION: ${effectiveDivision}`, fieldX + 18, 772);
+
+      ctx.fillStyle = '#94A3B8';
+      ctx.font = 'bold 12px "Nimbus Mono PS", monospace';
+      ctx.fillText(`ISSUED: ${formattedIssue} • ${formattedExpiry}`, fieldX + 18, 792);
+      ctx.restore();
+
+      // 7. REAL HIGH-DENSITY VERIFICATION QR CODE (Bottom-Right Panel)
+      try {
+        const verifyUrl = `https://uoi-gov.in/verify?serial=${serialId}`;
+        const qrBuffer = await generateQrCodeImageBuffer(verifyUrl);
+        if (qrBuffer) {
+          const qrImg = await safeLoadImage(qrBuffer);
+          if (qrImg) {
+            const qrX = 1044;
+            const qrY = 744;
+            const qrW = 102;
+            const qrH = 102;
+
+            ctx.save();
+            ctx.fillStyle = '#FFFFFF';
+            ctx.beginPath();
+            if (typeof ctx.roundRect === 'function') {
+              ctx.roundRect(qrX, qrY, qrW, qrH, 6);
+            } else {
+              ctx.rect(qrX, qrY, qrW, qrH);
+            }
+            ctx.fill();
+            ctx.strokeStyle = '#F59E0B';
+            ctx.lineWidth = 1.5;
+            ctx.stroke();
+
+            const p = 5;
+            ctx.drawImage(qrImg, qrX + p, qrY + p, qrW - p * 2, qrH - p * 2);
+
+            ctx.fillStyle = '#94A3B8';
+            ctx.font = 'bold 9px monospace';
+            ctx.textAlign = 'center';
+            ctx.fillText('SCAN TO VERIFY', qrX + qrW / 2, qrY + qrH + 12);
+            ctx.restore();
+          }
+        }
+      } catch (qrErr) {
+        console.warn('[UOI Bot] Warning rendering QR code:', qrErr?.message || qrErr);
+      }
+
+      // 8. SECURITY MICROTEXT BAND (Bottom border)
+      ctx.save();
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.45)';
+      ctx.font = 'bold 8.5px "Nimbus Mono PS", "Liberation Mono", monospace';
+      ctx.fillText('UNION OF INDIANS CITIZEN IDENTITY DOCUMENT • GOVERNMENT OF UOI • SCAN BARCODE OR QR CODE FOR LIVE AUTHENTICITY RECORD', 54, 882);
+      ctx.restore();
     } else {
       // 2. FALLBACK DESIGN (Only if template image has not yet been set)
       const bgGrad = ctx.createLinearGradient(0, 0, 1200, 900);
@@ -857,6 +1018,19 @@ export const cardCommand = {
             .setDescription('Officer or staff role permitted to approve or decline cards (Optional)')
             .setRequired(false)
         )
+        .addRoleOption((opt) =>
+          opt
+            .setName('verified_role')
+            .setDescription('Role to grant automatically when a citizen card is approved (e.g. @Citizen)')
+            .setRequired(false)
+        )
+        .addChannelOption((opt) =>
+          opt
+            .setName('audit_channel')
+            .setDescription('Channel where card logs (approvals, promotions, revocations) are sent')
+            .addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement)
+            .setRequired(false)
+        )
         .addBooleanOption((opt) =>
           opt
             .setName('auto_nickname')
@@ -893,8 +1067,42 @@ export const cardCommand = {
             .setDescription('Roblox Username/ID (Leave blank to AUTO-DETECT from Bloxlink/RoVer/Nickname!)')
             .setRequired(false)
         )
+        .addStringOption((opt) =>
+          opt
+            .setName('division')
+            .setDescription('Civilian Directorate, Armed Forces, or Homeland Security (Optional)')
+            .setRequired(false)
+        )
         .addUserOption((opt) =>
           opt.setName('citizen').setDescription('Target member (leave empty to apply for yourself)')
+        )
+    )
+    // 1b. /card apply (Modal application form)
+    .addSubcommand((sub) =>
+      sub
+        .setName('apply')
+        .setDescription('Open interactive application form modal to apply for UOI Citizen Card')
+    )
+    // 1c. /card refresh (Citizen Self-Service Avatar & Role Synchronizer)
+    .addSubcommand((sub) =>
+      sub
+        .setName('refresh')
+        .setDescription('Refresh your active card with your latest Roblox avatar & Discord server role')
+    )
+    // 1d. /card export (Admins / Officers Bulk Registry Export)
+    .addSubcommand((sub) =>
+      sub
+        .setName('export')
+        .setDescription('Export server citizen cards database to CSV/JSON file (Admins & Officers Only)')
+        .addStringOption((opt) =>
+          opt
+            .setName('format')
+            .setDescription('Export format (CSV or JSON, default: CSV)')
+            .addChoices(
+              { name: '📊 CSV Spreadsheet (Excel / Google Sheets)', value: 'csv' },
+              { name: '📦 JSON Database Dump', value: 'json' }
+            )
+            .setRequired(false)
         )
     )
     // 2. /card whois (Roblox Auto-Detection & Identity Dossier)
@@ -1123,6 +1331,8 @@ export const cardCommand = {
       const staffChannel = interaction.options.getChannel('staff_channel');
       const deliveryChannel = interaction.options.getChannel('delivery_channel');
       const staffRole = interaction.options.getRole('staff_role');
+      const verifiedRole = interaction.options.getRole('verified_role');
+      const auditChannel = interaction.options.getChannel('audit_channel');
       const autoStaffRole = (!staffRole && interaction.guild) ? findBestStaffRole(interaction.guild) : null;
       const effectiveStaffRole = staffRole || autoStaffRole;
       const autoNickname = interaction.options.getBoolean('auto_nickname') ?? true;
@@ -1140,6 +1350,10 @@ export const cardCommand = {
         deliveryChannelName: deliveryChannel ? deliveryChannel.name : null,
         staffRoleId: effectiveStaffRole ? effectiveStaffRole.id : null,
         staffRoleName: effectiveStaffRole ? effectiveStaffRole.name : null,
+        verifiedRoleId: verifiedRole ? verifiedRole.id : (db.guilds[guildId]?.verifiedRoleId || null),
+        verifiedRoleName: verifiedRole ? verifiedRole.name : (db.guilds[guildId]?.verifiedRoleName || null),
+        auditChannelId: auditChannel ? auditChannel.id : (db.guilds[guildId]?.auditChannelId || null),
+        auditChannelName: auditChannel ? auditChannel.name : (db.guilds[guildId]?.auditChannelName || null),
         autoStaffRoleDetected: !staffRole && !!autoStaffRole,
         autoNickname,
         bloxlinkApiKey: bloxlinkApiKey && !bloxlinkApiKey.includes('http') && bloxlinkApiKey.trim().length >= 8 ? bloxlinkApiKey.trim() : (db.guilds[guildId]?.bloxlinkApiKey || null),
@@ -1742,6 +1956,7 @@ export const cardCommand = {
       const robloxQuery = interaction.options.getString('roblox');
       const fullName = interaction.options.getString('fullname');
       const gender = interaction.options.getString('gender');
+      const division = interaction.options.getString('division') || 'Civilian Directorate';
 
       // Target member in guild for role auto-scanning and nickname resolution
       let targetMember = null;
@@ -1875,6 +2090,8 @@ export const cardCommand = {
         fullName,
         gender,
         assignedRank,
+        division,
+        clearanceLevel: computeClearanceLevel(assignedRank, division),
         scannedRoleId: scannedRankInfo.roleId,
         scannedRoleName: scannedRankInfo.roleName,
         scannedRolesCount: scannedRankInfo.scannedRolesCount,
@@ -2024,6 +2241,206 @@ export const cardCommand = {
     // ==========================================
     // COMMAND: /card verify [serial]
     // ==========================================
+    // ==========================================
+    // COMMAND: /card apply (Interactive Modal Application Form)
+    // ==========================================
+    if (sub === 'apply') {
+      const modal = new ModalBuilder()
+        .setCustomId('card_modal_apply')
+        .setTitle('UOI Citizen Card Application');
+
+      const nameInput = new TextInputBuilder()
+        .setCustomId('fullName')
+        .setLabel('Full Legal Name')
+        .setStyle(TextInputStyle.Short)
+        .setPlaceholder('e.g. Suresh Kumar')
+        .setMinLength(2)
+        .setMaxLength(36)
+        .setRequired(true);
+
+      const genderInput = new TextInputBuilder()
+        .setCustomId('gender')
+        .setLabel('Gender')
+        .setStyle(TextInputStyle.Short)
+        .setPlaceholder('Male / Female / Other')
+        .setMaxLength(20)
+        .setRequired(true);
+
+      const robloxInput = new TextInputBuilder()
+        .setCustomId('roblox')
+        .setLabel('Roblox Username (Optional - auto-detects)')
+        .setStyle(TextInputStyle.Short)
+        .setPlaceholder('Leave blank to auto-detect from linked profile')
+        .setRequired(false);
+
+      const divisionInput = new TextInputBuilder()
+        .setCustomId('division')
+        .setLabel('Division / Department (Optional)')
+        .setStyle(TextInputStyle.Short)
+        .setPlaceholder('Civilian Directorate / Armed Forces / Homeland Security')
+        .setRequired(false);
+
+      modal.addComponents(
+        new ActionRowBuilder().addComponents(nameInput),
+        new ActionRowBuilder().addComponents(genderInput),
+        new ActionRowBuilder().addComponents(robloxInput),
+        new ActionRowBuilder().addComponents(divisionInput)
+      );
+
+      return interaction.showModal(modal);
+    }
+
+    // ==========================================
+    // COMMAND: /card refresh (Citizen Self-Service Avatar & Role Sync)
+    // ==========================================
+    if (sub === 'refresh') {
+      await interaction.deferReply({ ephemeral: false });
+      const db = loadDatabase();
+      const card = db.cards[interaction.user.id];
+      if (!card || card.status !== 'ACTIVE') {
+        return interaction.editReply({
+          content: '❌ **No Active Card Found:** You do not have an active UOI Citizen Card registered to your Discord account.\nUse `/card apply` or `/card generate` to apply for one!',
+        });
+      }
+
+      // Re-scan current member roles in server
+      let member = interaction.member;
+      if (interaction.guild) {
+        try { member = await interaction.guild.members.fetch(interaction.user.id); } catch (_) {}
+      }
+      const scannedRankInfo = resolveCitizenRankFromRoles(member);
+      const newRank = scannedRankInfo.rankName;
+
+      // Re-detect latest Roblox avatar & headshot
+      const robloxInfo = await autoDetectRobloxUser({
+        member,
+        user: interaction.user,
+        guildId,
+        guildConfig,
+        manualQuery: card.robloxUsername || card.robloxUserId,
+      });
+
+      card.assignedRank = newRank;
+      if (robloxInfo?.avatarUrl) card.avatarUrl = robloxInfo.avatarUrl;
+      if (robloxInfo?.username) card.robloxUsername = robloxInfo.username;
+      card.lastRefreshedAt = new Date().toISOString();
+      saveDatabase(db);
+
+      const renderResult = await renderCardImage({
+        guildId,
+        fullName: card.fullName,
+        robloxUsername: card.robloxUsername,
+        robloxUserId: card.robloxUserId,
+        gender: card.gender,
+        assignedRank: card.assignedRank,
+        serialId: card.serialId,
+        avatarUrl: card.avatarUrl,
+        division: card.division,
+        clearanceLevel: card.clearanceLevel,
+        issuedAt: card.issuedAt,
+      });
+
+      const files = [];
+      if (renderResult.buffer) {
+        files.push(new AttachmentBuilder(renderResult.buffer, { name: `${card.serialId}.png` }));
+      }
+
+      const embed = new EmbedBuilder()
+        .setTitle('🔄 UOI Citizen Card Refreshed')
+        .setColor(0x10b981)
+        .setDescription(`**Your citizen card has been updated with your latest Roblox avatar & Discord server role!**\nYour registered Serial ID \`${card.serialId}\` remains permanent.`)
+        .addFields(
+          { name: 'Full Name', value: card.fullName, inline: true },
+          { name: 'Updated Role / Rank', value: `**${card.assignedRank}**`, inline: true },
+          { name: 'Roblox Username', value: `@${card.robloxUsername || 'N/A'}`, inline: true },
+          { name: 'Serial ID', value: `\`${card.serialId}\``, inline: true },
+          { name: 'Status', value: '🟢 ACTIVE CITIZEN', inline: true },
+        )
+        .setFooter({ text: 'Union of Indians Registry • Instant Card Synchronizer' })
+        .setTimestamp();
+
+      if (card.avatarUrl) embed.setThumbnail(card.avatarUrl);
+
+      dispatchAuditLog(interaction.guild, guildConfig, {
+        event: 'CARD_REFRESHED',
+        citizenUser: interaction.user,
+        officerUser: interaction.user,
+        serialId: card.serialId,
+        reason: 'Citizen self-service avatar & role synchronization',
+      });
+
+      return interaction.editReply({ embeds: [embed], files });
+    }
+
+    // ==========================================
+    // COMMAND: /card export (Admins / Officers Bulk Registry Export)
+    // ==========================================
+    if (sub === 'export') {
+      await interaction.deferReply({ ephemeral: true });
+      const hasPerm = await checkIsStaffOrAdmin(interaction, guildConfig);
+      if (!hasPerm) {
+        return interaction.editReply({
+          content: '❌ **Permission Denied:** Only administrators and authorized officers can export the server citizenship database.',
+        });
+      }
+
+      const format = interaction.options.getString('format') || 'csv';
+      const db = loadDatabase();
+      const allCards = Object.values(db.cards || {});
+      const serverCards = guildId ? allCards.filter(c => c.guildId === guildId || !c.guildId) : allCards;
+
+      if (serverCards.length === 0) {
+        return interaction.editReply({
+          content: '📋 **No Citizen Cards Found:** No active cards are currently registered for this server.',
+        });
+      }
+
+      let fileBuffer = null;
+      let fileName = '';
+
+      if (format === 'json') {
+        const jsonDump = JSON.stringify(serverCards, null, 2);
+        fileBuffer = Buffer.from(jsonDump, 'utf8');
+        fileName = `uoi_citizens_${guildId || 'registry'}.json`;
+      } else {
+        const headers = ['Serial ID', 'Full Name', 'Gender', 'Roblox Username', 'Roblox UID', 'Rank', 'Division', 'Clearance', 'Status', 'Issued At', 'Discord ID'];
+        const csvRows = [headers.join(',')];
+        for (const c of serverCards) {
+          const row = [
+            `"${c.serialId || ''}"`,
+            `"${(c.fullName || '').replace(/"/g, '""')}"`,
+            `"${c.gender || ''}"`,
+            `"${c.robloxUsername || ''}"`,
+            `"${c.robloxUserId || ''}"`,
+            `"${c.assignedRank || ''}"`,
+            `"${c.division || 'Civilian Directorate'}"`,
+            `"${c.clearanceLevel || 'Level I'}"`,
+            `"${c.status || 'ACTIVE'}"`,
+            `"${c.issuedAt || ''}"`,
+            `"${c.discordId || ''}"`,
+          ];
+          csvRows.push(row.join(','));
+        }
+        fileBuffer = Buffer.from(csvRows.join('\n'), 'utf8');
+        fileName = `uoi_citizens_${guildId || 'registry'}.csv`;
+      }
+
+      const attachment = new AttachmentBuilder(fileBuffer, { name: fileName });
+      const exportEmbed = new EmbedBuilder()
+        .setTitle('📊 UOI Citizen Registry Export')
+        .setColor(0x10b981)
+        .setDescription(`Successfully exported **${serverCards.length}** citizen card record(s) in **${format.toUpperCase()}** format.`)
+        .addFields(
+          { name: 'Total Exported', value: `${serverCards.length} citizens`, inline: true },
+          { name: 'Format', value: format.toUpperCase(), inline: true },
+          { name: 'Exported By', value: `<@${interaction.user.id}>`, inline: true },
+        )
+        .setFooter({ text: 'Union of Indians Registry • Secure Data Export' })
+        .setTimestamp();
+
+      return interaction.editReply({ embeds: [exportEmbed], files: [attachment] });
+    }
+
     if (sub === 'verify') {
       const serial = interaction.options.getString('serial').toUpperCase();
       const db = loadDatabase();
@@ -2541,6 +2958,10 @@ export const cardCommand = {
           assignedRank: req.assignedRank,
           serialId,
           avatarUrl: req.robloxAvatarUrl,
+          division: req.division || 'Civilian Directorate',
+          clearanceLevel: req.clearanceLevel || computeClearanceLevel(req.assignedRank, req.division),
+          issuedAt: new Date().toISOString(),
+          issuedOfficerTag: interaction.user.tag,
         });
         cardBuffer = renderResult.buffer;
         usedTemplate = renderResult.usedTemplate;
@@ -2560,6 +2981,8 @@ export const cardCommand = {
         robloxUserId: req.robloxUserId,
         gender: req.gender,
         assignedRank: req.assignedRank,
+        division: req.division || 'Civilian Directorate',
+        clearanceLevel: req.clearanceLevel || computeClearanceLevel(req.assignedRank, req.division),
         avatarUrl: req.robloxAvatarUrl,
         robloxDetectionMethod: req.robloxDetectionMethod || 'Manual',
         robloxDetectionConfidence: req.robloxDetectionConfidence || 'Verified',
@@ -2607,7 +3030,7 @@ export const cardCommand = {
         console.warn('[UOI Bot] Could not edit staff review message:', staffEditErr.message);
       }
 
-      // Automatically update server nickname if enabled
+      // 1. Automatically update server nickname if enabled
       if (guildConfig?.autoNickname !== false) {
         try {
           const member = await interaction.guild.members.fetch(req.targetUser.id);
@@ -2618,6 +3041,40 @@ export const cardCommand = {
           console.warn('[UOI Bot] Nickname update failed:', nickErr.message);
         }
       }
+
+      // 2. Automatically assign verified citizen role if configured or auto-detected
+      try {
+        let roleToAssign = guildConfig?.verifiedRoleId;
+        if (!roleToAssign && interaction.guild) {
+          const autoRole = interaction.guild.roles.cache.find(r =>
+            /citizen|verified|member/i.test(r.name) && !r.managed && r.id !== interaction.guild.id
+          );
+          if (autoRole) roleToAssign = autoRole.id;
+        }
+        if (roleToAssign && interaction.guild) {
+          const member = await interaction.guild.members.fetch(req.targetUser.id);
+          if (member && !member.roles.cache.has(roleToAssign)) {
+            await member.roles.add(roleToAssign);
+            console.log(`[UOI Bot] 🎖️ Assigned verified role <@&${roleToAssign}> to approved citizen <@${req.targetUser.id}>`);
+          }
+        }
+      } catch (roleErr) {
+        console.warn('[UOI Bot] Auto-role assignment notice:', roleErr.message);
+      }
+
+      // 3. Dispatch Security Audit Log to audit channel
+      dispatchAuditLog(interaction.guild, guildConfig, {
+        event: 'CARD_ISSUED',
+        citizenUser: req.targetUser,
+        officerUser: interaction.user,
+        serialId,
+        reason: 'Citizen application reviewed and approved by staff',
+        fields: [
+          { name: 'Full Name', value: req.fullName, inline: true },
+          { name: 'Assigned Rank', value: `\`${req.assignedRank}\``, inline: true },
+          { name: 'Roblox Profile', value: `@${req.robloxUsername || 'Unlinked'}`, inline: true },
+        ],
+      });
 
       // Deliver card to delivery channel or applicant
       const fileName = `${serialId}.png`;
@@ -2723,6 +3180,139 @@ export const cardCommand = {
   // ==========================================
   async handleModal(interaction) {
     const customId = interaction.customId;
+
+    // Handle interactive application modal: card_modal_apply
+    if (customId === 'card_modal_apply') {
+      await interaction.deferReply({ ephemeral: false });
+      const targetUser = interaction.user;
+      const fullName = interaction.fields.getTextInputValue('fullName');
+      const gender = interaction.fields.getTextInputValue('gender');
+      const robloxQuery = interaction.fields.getTextInputValue('roblox') || null;
+      const division = interaction.fields.getTextInputValue('division') || 'Civilian Directorate';
+
+      const guildId = interaction.guildId;
+      const db = loadDatabase();
+      const guildConfig = db.guilds?.[guildId] || autoDetectAndSaveSetup(interaction.guild, interaction.channel);
+
+      // Check existing active card
+      const existingCard = db.cards[targetUser.id];
+      if (existingCard && existingCard.status === 'ACTIVE') {
+        return interaction.editReply({
+          content: `⚠️ **Card Generation Blocked:** You already possess an active UOI Citizen Card with Serial \`${existingCard.serialId}\`!`,
+        });
+      }
+
+      // Auto-scan member Discord roles
+      let targetMember = null;
+      if (interaction.guild) {
+        try { targetMember = await interaction.guild.members.fetch(targetUser.id); } catch (_) {}
+      }
+      const scannedRankInfo = resolveCitizenRankFromRoles(targetMember || interaction.member);
+      const assignedRank = scannedRankInfo.rankName;
+
+      // Auto-detect Roblox account
+      const robloxInfo = await autoDetectRobloxUser({
+        member: targetMember || interaction.member,
+        user: targetUser,
+        guildId,
+        guildConfig,
+        manualQuery: robloxQuery,
+      });
+
+      if (!robloxInfo || !robloxInfo.detected || !robloxInfo.userId) {
+        return interaction.editReply({
+          content: `🔍 **Roblox Account Required:** Could not auto-detect a verified Roblox account. Please run \`/card link roblox:YourUsername\` or supply your username!`,
+        });
+      }
+
+      const requestId = `REQ-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
+      db.pendingRequests = db.pendingRequests || {};
+      const requestRecord = {
+        id: requestId,
+        guildId,
+        targetUser: { id: targetUser.id, tag: targetUser.tag },
+        applicantUser: { id: interaction.user.id, tag: interaction.user.tag },
+        fullName,
+        gender,
+        assignedRank,
+        division,
+        clearanceLevel: computeClearanceLevel(assignedRank, division),
+        scannedRoleId: scannedRankInfo.roleId,
+        scannedRoleName: scannedRankInfo.roleName,
+        scannedRolesCount: scannedRankInfo.scannedRolesCount,
+        robloxUsername: robloxInfo.username,
+        robloxUserId: robloxInfo.userId,
+        robloxAvatarUrl: robloxInfo.avatarUrl,
+        robloxDetectionMethod: robloxInfo.method,
+        robloxDetectionConfidence: robloxInfo.confidence,
+        robloxHasVerifiedBadge: robloxInfo.hasVerifiedBadge,
+        submittedAt: new Date().toISOString(),
+        status: 'PENDING',
+        declineReason: null,
+        reviewedBy: null,
+        reviewedAt: null,
+        issuedSerialId: null,
+        staffChannelId: null,
+        staffMessageId: null,
+      };
+      db.pendingRequests[requestId] = requestRecord;
+      saveDatabase(db);
+
+      // Post to staff channel
+      let postedToStaff = false;
+      try {
+        const staffChannel = await interaction.guild.channels.fetch(guildConfig.staffChannelId);
+        if (staffChannel && staffChannel.isTextBased()) {
+          const staffEmbed = new EmbedBuilder()
+            .setTitle(`🛡️ New Citizen Card Application: ${fullName}`)
+            .setColor(0xf59e0b)
+            .setDescription(`A citizen card application has been submitted via interactive modal.\n\n• **Citizen:** <@${targetUser.id}> (\`${targetUser.tag}\`)\n• **Division:** ${division}`)
+            .addFields(
+              { name: 'Full Citizen Name', value: fullName, inline: true },
+              { name: 'Gender', value: gender, inline: true },
+              { name: '🎖️ Auto-Scanned Role', value: scannedRankInfo.roleId ? `<@&${scannedRankInfo.roleId}> (\`${assignedRank}\`)` : `\`${assignedRank}\``, inline: true },
+              { name: 'Roblox Identity', value: `[@${robloxInfo.username}](https://www.roblox.com/users/${robloxInfo.userId}/profile)`, inline: true },
+              { name: 'Request ID', value: `\`${requestId}\``, inline: true },
+              { name: 'Submitted At', value: `<t:${Math.floor(Date.now() / 1000)}:R>`, inline: true }
+            )
+            .setFooter({ text: `UOI Staff Review Queue • Request ${requestId}` })
+            .setTimestamp();
+
+          if (robloxInfo.avatarUrl) staffEmbed.setThumbnail(robloxInfo.avatarUrl);
+
+          const actionRow = new ActionRowBuilder().addComponents(
+            new ButtonBuilder().setCustomId(`card_accept_${requestId}`).setLabel('Accept & Issue Card').setStyle(ButtonStyle.Success).setEmoji('✅'),
+            new ButtonBuilder().setCustomId(`card_decline_${requestId}`).setLabel('Decline with Reason').setStyle(ButtonStyle.Danger).setEmoji('❌')
+          );
+
+          const sentMsg = await staffChannel.send({ embeds: [staffEmbed], components: [actionRow] });
+          requestRecord.staffChannelId = staffChannel.id;
+          requestRecord.staffMessageId = sentMsg.id;
+          saveDatabase(db);
+          postedToStaff = true;
+        }
+      } catch (err) {
+        console.error('[UOI Bot] Error posting modal application to staff:', err.message);
+      }
+
+      const applicantEmbed = new EmbedBuilder()
+        .setTitle('📋 Application Submitted for Staff Review')
+        .setColor(0x38bdf8)
+        .setDescription(`**Your UOI Citizen Card application has been dispatched to Staff!**\n\nLinked to Roblox profile [@${robloxInfo.username}](https://www.roblox.com/users/${robloxInfo.userId}/profile).`)
+        .addFields(
+          { name: 'Request ID', value: `\`${requestId}\``, inline: true },
+          { name: 'Full Name', value: fullName, inline: true },
+          { name: 'Division', value: division, inline: true },
+          { name: '🎖️ Auto-Scanned Server Role', value: scannedRankInfo.roleId ? `<@&${scannedRankInfo.roleId}> (\`${assignedRank}\`)` : `\`${assignedRank}\``, inline: true },
+          { name: 'Staff Review Channel', value: `<#${guildConfig.staffChannelId}>`, inline: true }
+        )
+        .setFooter({ text: 'Union of Indians Central Registry • Verification Queue' })
+        .setTimestamp();
+
+      if (robloxInfo.avatarUrl) applicantEmbed.setThumbnail(robloxInfo.avatarUrl);
+      return interaction.editReply({ embeds: [applicantEmbed] });
+    }
+
     if (!customId.startsWith('card_modal_decline_')) return;
 
     const requestId = customId.replace('card_modal_decline_', '');

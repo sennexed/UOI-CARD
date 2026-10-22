@@ -109,16 +109,18 @@ Below is the coordinate layout mapping for the expanded card info:
 
 ---
 
-## 4. Implementation Priority Matrix
+## 4. Implementation Status Matrix
 
-| Feature | Impact | Complexity | Priority |
+| Feature | Impact | Complexity | Status |
 |---|---|---|---|
-| Expanded Card Metadata Schema (Division, Clearance, Dates) | High | Low | **P0 (Immediate)** |
-| Automatic `@Citizen` Discord Role Assignment | High | Low | **P0 (Immediate)** |
-| Interactive Discord Modal Form (`/card apply`) | High | Medium | **P1 (Near-Term)** |
-| Web Verification Portal (`/verify/[serialId]`) | High | Medium | **P1 (Near-Term)** |
-| Dynamic QR Code Generation on Card Graphic | High | Low | **P1 (Near-Term)** |
-| Self-Service Card Avatar Resync (`/card refresh`) | Medium | Low | **P2 (Follow-up)** |
-| In-Game Roblox HTTP Verification API | High | Medium | **P2 (Follow-up)** |
-| Administrative Audit Log Channel | Medium | Low | **P2 (Follow-up)** |
-| Batch CSV/JSON Export | Medium | Low | **P3 (Planned)** |
+| Auto-Scanned Discord Server Roles | High | Low | **✅ Active (Shipped)** |
+| Expanded Metadata (Clearance, Division, Dates) | High | Low | **✅ Active (Shipped)** |
+| Automatic `@Citizen` Discord Role Assignment | High | Low | **✅ Active (Shipped)** |
+| Interactive Discord Modal Form (`/card apply`) | High | Medium | **✅ Active (Shipped)** |
+| Web Verification Portal (`/verify` & `/verify/:serialId`) | High | Medium | **✅ Active (Shipped)** |
+| In-Game Roblox HTTP Verification API (`/api/v1/verify`) | High | Medium | **✅ Active (Shipped)** |
+| Dynamic QR Code Generation on Card Graphic | High | Low | **✅ Active (Shipped)** |
+| Self-Service Card Avatar & Role Resync (`/card refresh`) | Medium | Low | **✅ Active (Shipped)** |
+| Administrative Audit Log Channel Dispatch | Medium | Low | **✅ Active (Shipped)** |
+| Batch CSV/JSON Registry Export (`/card export`) | Medium | Low | **✅ Active (Shipped)** |
+| Bottom Anti-Counterfeiting Microtext Band | Medium | Low | **✅ Active (Shipped)** |

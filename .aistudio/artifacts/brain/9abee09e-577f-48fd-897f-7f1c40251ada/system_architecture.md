@@ -72,16 +72,27 @@ The bot implements permanent multi-server memory. Every guild that invites the b
 |---|---|---|
 | **Tier 1: Owner** | • Server Owner (`guild.ownerId`)<br>• Bot Developer Application Owner<br>• Configured `OWNER_ID` in `.env` | • `/card git-sync` (Git remote pull + graceful restart)<br>• `/card git-status` (Commit hash, branch & webhook info)<br>• `/card memory` (Inspect permanent storage & setups)<br>• All Tier 2 & Tier 3 commands |
 | **Tier 2: Staff / Admin** | • Server Administrators<br>• `Manage Server` permission<br>• Role designated via `staff_role` | • `/card setup` (Configure review/delivery channels)<br>• `/card set-template` & `/card reset-template`<br>• `/card promote` (Grant rank advancements)<br>• `/card revoke` (Revoke and blacklist citizen IDs)<br>• `/card inspect` (Inspect citizen dossiers)<br>• `/card botstyle` (Modify bot display typography/colors)<br>• Review Action Buttons (Approve/Reject requests) |
-| **Tier 3: Citizens** | • All Discord Members | • `/card generate` (Submit card application)<br>• `/card show` (Display citizen card and status)<br>• `/card verify` (Verify barcode/serial validity)<br>• `/card whois` (Look up linked Roblox profile)<br>• `/card link` / `/card unlink` (Link personal Roblox account)<br>• `/card view-template` (View server active template) |
+| **Tier 3: Citizens** | • All Discord Members | • `/card apply` (Interactive modal application form)<br>• `/card generate` (Submit card application)<br>• `/card refresh` (Self-service avatar & role resync)<br>• `/card show` (Display citizen card and status)<br>• `/card verify` (Verify barcode/serial validity)<br>• `/card whois` (Look up linked Roblox profile)<br>• `/card link` / `/card unlink` (Link personal Roblox account)<br>• `/card view-template` (View server active template) |
 
 ---
 
 ## 5. Canvas Card Generation Engine
 
 1. **Resolution & Dimensions**:
-   * Base Canvas: Normalized to 1200 x 750 pixels (or custom template aspect ratio).
+   * Base Canvas: 1200 x 900 pixels high-definition canvas.
 2. **Dynamic Elements**:
-   * **Roblox 3D Avatar**: High-res circular or rounded headshot retrieved from Roblox Thumbnails CDN.
+   * **Roblox 3D Avatar**: High-res circular or rounded headshot retrieved from Roblox Thumbnails CDN (`337 x 344 px`).
    * **Typography**: Clean hierarchy displaying Full Name, Roblox Username, User ID, Gender, and Assigned Rank Tier.
-   * **Barcode**: Cryptographic Code 128 barcode dynamically generated via `bwip-js` encoding the unique serial ID (`UOI-YYYY-XXXXXX`).
-   * **National Emblems & Accents**: Tiranga-styled ribbons (Saffron, White, Emerald Green), holographic seals, and official Union of Indians watermarks.
+   * **Security Clearance Level**: Automatically computed five-tier accreditation (*Level I: General Citizen* to *Level V: Union Directorate*).
+   * **Government Division**: e.g. *Civilian Directorate*, *Armed Forces*, *Homeland Security & Border Corps*.
+   * **Issuance & Expiry Dates**: Formatted dynamic issue date (`22 OCT 2026`) and two-year validity stamp (`VALID THRU: OCT 2028`).
+   * **Dual Scannable Verification**:
+     * **Code 128 Barcode**: Generated dynamically via `bwip-js` encoding the unique serial ID (`UOI-YYYY-XXXXXX`).
+     * **Real-time Verification QR Code**: Encoded with live web verification URL (`https://uoi-gov.in/verify?serial=UOI-2026-XXXXXX`).
+   * **Anti-Tamper Security Microtext Band**: High-precision microtext line rendered along the canvas bottom border.
+3. **Automated Server Integrations**:
+   * **Auto-Role Assignee**: Automatically assigns the configured `@Citizen` role to members on card approval.
+   * **Security Audit Trail**: Dispatches audit events (`CARD_ISSUED`, `CARD_REVOKED`, `CARD_PROMOTED`) to `#card-logs`.
+   * **Live Web Verification Portal & API**:
+     * `/verify/:serialId`: Holographic web dossier for scanned cards.
+     * `/api/v1/verify`: JSON verification API for Roblox Lua `HttpService` in-game scripting.
