@@ -23,12 +23,39 @@
       "status": "REVOKED",
       "revokedAt": "2026-09-24T14:12:58.378Z",
       "revokeReason": "duh i fed up"
+    },
+    "test_guild_123_test_user_777": {
+      "discordId": "test_user_777",
+      "discordTag": "TestCitizen#0001",
+      "guildId": "test_guild_123",
+      "serialId": "UOI-2026-705970",
+      "fullName": "Rohan Sharma",
+      "robloxUsername": "RohanRoblox",
+      "robloxUserId": "12345678",
+      "gender": "Male",
+      "assignedRank": "Senior Citizen",
+      "division": "Civilian Directorate",
+      "clearanceLevel": "LEVEL II (CIVIL SERVICE)",
+      "robloxDetectionMethod": "Manual",
+      "robloxDetectionConfidence": "Verified",
+      "robloxHasVerifiedBadge": false,
+      "issuedBy": {
+        "discordId": "officer_123",
+        "discordTag": "Officer#0001"
+      },
+      "issuedAt": "2026-11-01T09:40:11.971Z",
+      "serverNickname": "Rohan Sharma [UOI-2026-705970]",
+      "status": "ACTIVE"
     }
   },
   "serToUser": {
     "UOI-2026-833074": {
       "userId": "1126905502387933345",
       "guildId": "1126909194826682408"
+    },
+    "UOI-2026-705970": {
+      "userId": "test_user_777",
+      "guildId": "test_guild_123"
     }
   },
   "guilds": {
@@ -69,6 +96,12 @@
       },
       "name": "Union of Indians",
       "guildId": "1467485915374162025"
+    },
+    "test_guild_123": {
+      "isSetup": true,
+      "staffChannelId": "chan_123",
+      "name": "Server test_guild_123",
+      "guildId": "test_guild_123"
     }
   },
   "pendingRequests": {
@@ -137,32 +170,5 @@
       "staffMessageId": "1552684338229813361"
     }
   },
-  "serverCards": {
-    "1126909194826682408": {
-      "1126905502387933345": {
-        "discordId": "1126905502387933345",
-        "discordTag": "mightyestgod",
-        "guildId": "1126909194826682408",
-        "serialId": "UOI-2026-833074",
-        "fullName": "senne",
-        "robloxUsername": "senne",
-        "robloxUserId": "1031835",
-        "gender": "male",
-        "assignedRank": "COMMUNITY MEMBER",
-        "avatarUrl": "https://t4.rbxcdn.com/30DAY-AvatarHeadshot-D73985703EC10A39074C21C8E21A20DD-Png",
-        "robloxDetectionMethod": "Server Nickname Auto-Match",
-        "robloxDetectionConfidence": "High (Verified Roblox Profile)",
-        "robloxHasVerifiedBadge": false,
-        "issuedBy": {
-          "discordId": "1126905502387933345",
-          "discordTag": "mightyestgod"
-        },
-        "issuedAt": "2026-09-24T14:11:58.613Z",
-        "serverNickname": "senne [UOI-2026-833074]",
-        "status": "REVOKED",
-        "revokedAt": "2026-09-24T14:12:58.378Z",
-        "revokeReason": "duh i fed up"
-      }
-    }
-  }
+  "serverCards": {}
 }

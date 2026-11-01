@@ -79,6 +79,9 @@ Below is the coordinate layout mapping for the expanded card info:
 ## 3. Functioning & Feature Roadmap
 
 ### Phase 1: Streamlined Application & Auto-Role Workflow (Immediate)
+* **Direct Message (DM) Notification on Card Acceptance & Rejection**:
+  * ✅ **Implemented**: Upon clicking **[✅ Accept & Issue Card]**, the bot automatically dispatches a private DM to the accepted citizen containing their official card PNG graphic, legal name, Serial ID, rank, Roblox identity, and quick tips.
+  * ✅ **Implemented**: If rejected, a DM is sent detailing the specific reason provided by the reviewing officer so the applicant can correct and re-apply.
 * **Interactive Modal Application (`/card apply`)**:
   * Instead of typing all parameters in a slash command, clicking `/card apply` opens a native Discord Modal with form fields (Full Name, Roblox Profile, Gender, Division preference).
 * **Automated Verified Role Provisioning**:

@@ -42,7 +42,7 @@ Displays whether the server is currently using a custom uploaded template or the
 
 ### Revert to Default Template
 ```
-/card reset-template
+/card set-template reset:True
 ```
 Removes the custom template and restores the default official Union of Indians template.
 
@@ -50,24 +50,26 @@ Removes the custom template and restores the default official Union of Indians t
 
 ## 3. Citizen Card Workflow
 
-### Applying for an ID Card (Two Methods)
+### Applying for an ID Card (`/card generate`)
 
-#### Method A: Interactive Modal Popup (Recommended)
+The `/card generate` command is now a unified, intelligent application command:
+
+#### Method A: Interactive Modal Popup Form (Recommended)
 ```
-/card apply
+/card generate
 ```
-Opens a native Discord form modal prompting for:
+Simply type `/card generate` and press Enter with no options! The bot instantly opens an interactive modal form prompting for:
 * **Full Legal Name**
 * **Gender**
 * **Roblox Username** (optional — auto-detects if left blank)
 * **Division / Branch Preference** (optional — e.g. *Civilian Directorate*, *Armed Forces*, *Homeland Security*)
 
-#### Method B: Direct Slash Command
+#### Method B: Direct Fast One-Liner Command
 ```
-/card generate fullname:Suresh Kumar gender:Male [roblox:Suresh_RBLX] [division:Civilian Directorate]
+/card generate fullname:Suresh Kumar gender:Male [roblox:Suresh_RBLX] [division:Civilian Directorate] [citizen:@user]
 ```
-* **Auto-Scanned Server Role**: The bot automatically scans the applicant's Discord roles in the server and stamps their genuine hierarchical role (e.g. *Senior Officer*, *Commandant*, *Cadet*, *Citizen*) onto the card. The manual rank option has been removed to prevent false rank claims.
-* If the user already linked their Roblox account, the `roblox` parameter can also be left blank.
+* **Auto-Scanned Server Role**: The bot automatically scans the applicant's Discord roles in the server and stamps their genuine hierarchical role (e.g. *Senior Officer*, *Commandant*, *Cadet*, *Citizen*) onto the card. Manual rank selection has been eliminated to prevent falsification.
+* If the user already linked their Roblox account, the `roblox` parameter can be omitted.
 * The bot queues the request and dispatches an interactive review ticket to the staff channel.
 
 ### Self-Service Card Refresh
@@ -76,7 +78,7 @@ Opens a native Discord form modal prompting for:
 ```
 Allows existing cardholders to refresh their card graphic with their latest Roblox 3D avatar headshot (e.g. changed outfits or accessories) and latest Discord server role while preserving their exact same unique Serial ID!
 
-### Inspecting Active Citizen Card
+### Inspecting Active Citizen Card & Records
 ```
 /card show [citizen:@user]
 ```
@@ -86,11 +88,11 @@ Allows existing cardholders to refresh their card graphic with their latest Robl
   * The Discord embed highlights the jurisdiction scope and lists how many distinct server-specific cards the member holds.
   * If the citizen does not have a card in the current server, the command cleanly indicates this and lists the other servers where they hold registered citizenship, preventing cross-server confusion.
 
-### Inspecting Citizen Records (Staff/Officers)
+### Inspecting Roblox Identity & Linking
 ```
-/card inspect user:@user
+/card whois [citizen:@user] [roblox:username]
 ```
-Displays comprehensive dossier, registered serial ID, Roblox profile link, issuance timestamps, and status.
+Displays comprehensive Roblox identity dossier, 3D avatar headshot, Bloxlink/RoVer cross-check status, and registry record.
 
 ### Exporting Citizen Database (Admins & Officers)
 ```
@@ -100,7 +102,28 @@ Generates a downloadable CSV spreadsheet or JSON database dump of all registered
 
 ---
 
-## 5. Web Verification Portal & In-Game Roblox API
+## 4. Staff Review & Instant Direct Message (DM) Notification
+
+When an applicant submits `/card generate` (via interactive modal form or direct slash command), an interactive review ticket is posted to the designated `staff_channel`:
+
+### Staff Action Buttons:
+1. **[✅ Accept & Issue Card]**:
+   * Stamps the card onto the server's official template with photo, rank, barcode, and QR code.
+   * Auto-renames citizen to `FullName [UOI-Serial-ID]` (if `auto_nickname` is enabled).
+   * Automatically grants the configured verified citizen role (e.g. `@Citizen`).
+   * Broadcasts the card to the public `delivery_channel` (if configured).
+   * 📬 **Automatic Direct Message (DM) Notification**: The bot immediately sends a private DM directly to the citizen containing:
+     * A celebratory acceptance notification from the specific Discord server.
+     * Their full legal name, permanent Serial ID, and scanned rank tier.
+     * The high-resolution PNG image of their official ID card attached for instant download.
+     * Guidance on using `/card show` and `/card refresh`.
+   * The reviewing officer receives immediate confirmation that the DM was delivered (with graceful handling if the user's DMs are closed).
+2. **[❌ Decline with Reason]**:
+   * Opens an interactive modal prompting the officer to provide a specific rejection explanation.
+   * Updates the review ticket to `DECLINED` and logs the reason.
+   * 📬 **Direct Message (DM) Notification**: The bot sends a DM notifying the user that their application was declined and detailing the exact reason specified by the officer so they can correct it and re-apply.
+
+---
 
 The bot runs an active web service on port 3000:
 

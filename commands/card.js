@@ -1259,21 +1259,21 @@ export const cardCommand = {
             .setRequired(false)
         )
     )
-    // 1. /card generate (Routes to staff review with Auto-Scanned Roles & Roblox Auto-Detection)
+    // 1. /card generate (Unified: Opens interactive modal if empty, or accepts direct slash options)
     .addSubcommand((sub) =>
       sub
         .setName('generate')
-        .setDescription('Submit ID card application (Auto-scans server role & Roblox profile!)')
+        .setDescription('Apply for or issue a Citizen ID Card (Opens modal form, or supply options directly)')
         .addStringOption((opt) =>
-          opt.setName('fullname').setDescription('Full Citizen Name').setRequired(true)
+          opt.setName('fullname').setDescription('Full Citizen Name (Leave blank to open interactive modal form!)').setRequired(false)
         )
         .addStringOption((opt) =>
-          opt.setName('gender').setDescription('Gender (Male / Female / Other)').setRequired(true)
+          opt.setName('gender').setDescription('Gender (Male / Female / Other)').setRequired(false)
         )
         .addStringOption((opt) =>
           opt
             .setName('roblox')
-            .setDescription('Roblox Username/ID (Leave blank to AUTO-DETECT from Bloxlink/RoVer/Nickname!)')
+            .setDescription('Roblox Username/ID (Optional - auto-detects from profile/nickname)')
             .setRequired(false)
         )
         .addStringOption((opt) =>
@@ -1283,22 +1283,16 @@ export const cardCommand = {
             .setRequired(false)
         )
         .addUserOption((opt) =>
-          opt.setName('citizen').setDescription('Target member (leave empty to apply for yourself)')
+          opt.setName('citizen').setDescription('Target member (leave empty to apply for yourself)').setRequired(false)
         )
     )
-    // 1b. /card apply (Modal application form)
-    .addSubcommand((sub) =>
-      sub
-        .setName('apply')
-        .setDescription('Open interactive application form modal to apply for UOI Citizen Card')
-    )
-    // 1c. /card refresh (Citizen Self-Service Avatar & Role Synchronizer)
+    // 2. /card refresh (Citizen Self-Service Avatar & Role Synchronizer)
     .addSubcommand((sub) =>
       sub
         .setName('refresh')
         .setDescription('Refresh your active card with your latest Roblox avatar & Discord server role')
     )
-    // 1d. /card export (Admins / Officers Bulk Registry Export)
+    // 3. /card export (Admins / Officers Bulk Registry Export)
     .addSubcommand((sub) =>
       sub
         .setName('export')
@@ -1314,7 +1308,7 @@ export const cardCommand = {
             .setRequired(false)
         )
     )
-    // 2. /card whois (Roblox Auto-Detection & Identity Dossier)
+    // 4. /card whois (Roblox Auto-Detection & Identity Dossier)
     .addSubcommand((sub) =>
       sub
         .setName('whois')
@@ -1326,7 +1320,7 @@ export const cardCommand = {
           opt.setName('roblox').setDescription('Or manually query a specific Roblox username or user ID')
         )
     )
-    // 2b. /card link (Permanently link Discord account to Roblox profile)
+    // 5. /card link (Permanently link Discord account to Roblox profile)
     .addSubcommand((sub) =>
       sub
         .setName('link')
@@ -1344,7 +1338,7 @@ export const cardCommand = {
             .setRequired(false)
         )
     )
-    // 2c. /card unlink (Unlink Roblox profile)
+    // 6. /card unlink (Unlink Roblox profile)
     .addSubcommand((sub) =>
       sub
         .setName('unlink')
@@ -1356,7 +1350,7 @@ export const cardCommand = {
             .setRequired(false)
         )
     )
-    // 3. /card show (NEW: Pulls card of user from database)
+    // 7. /card show (Pulls official card from database with graphical rendering)
     .addSubcommand((sub) =>
       sub
         .setName('show')
@@ -1365,7 +1359,7 @@ export const cardCommand = {
           opt.setName('citizen').setDescription('Target member to look up (leave empty to view your own card)')
         )
     )
-    // 3. /card set-template (1 template per server)
+    // 8. /card set-template (1 template per server, supports reset)
     .addSubcommand((sub) =>
       sub
         .setName('set-template')
@@ -1380,19 +1374,13 @@ export const cardCommand = {
           opt.setName('reset').setDescription('Set to True to remove custom template and revert to official default')
         )
     )
-    // 4. /card view-template
+    // 9. /card view-template
     .addSubcommand((sub) =>
       sub
         .setName('view-template')
         .setDescription('View the current active card template for this server')
     )
-    // 5. /card reset-template
-    .addSubcommand((sub) =>
-      sub
-        .setName('reset-template')
-        .setDescription('Reset this server\'s card template back to the official default template')
-    )
-    // 5. /card verify [serial_id]
+    // 10. /card verify [serial_id]
     .addSubcommand((sub) =>
       sub
         .setName('verify')
@@ -1401,16 +1389,7 @@ export const cardCommand = {
           opt.setName('serial').setDescription('e.g. UOI-2026-839201').setRequired(true)
         )
     )
-    // 6. /card inspect @user
-    .addSubcommand((sub) =>
-      sub
-        .setName('inspect')
-        .setDescription('Inspect citizen dossier, card status, and record history')
-        .addUserOption((opt) =>
-          opt.setName('user').setDescription('Target Discord user').setRequired(true)
-        )
-    )
-    // 7. /card promote
+    // 11. /card promote
     .addSubcommand((sub) =>
       sub
         .setName('promote')
@@ -1425,7 +1404,7 @@ export const cardCommand = {
           opt.setName('reason').setDescription('Promotion justification')
         )
     )
-    // 8. /card revoke
+    // 12. /card revoke
     .addSubcommand((sub) =>
       sub
         .setName('revoke')
@@ -1437,7 +1416,7 @@ export const cardCommand = {
           opt.setName('reason').setDescription('Reason for revocation').setRequired(true)
         )
     )
-    // 9. /card botstyle (Custom Bot Name Styles including 10th Font Sinistre)
+    // 13. /card botstyle (Custom Bot Name Styles including 10th Font Sinistre)
     .addSubcommand((sub) =>
       sub
         .setName('botstyle')
@@ -1492,19 +1471,19 @@ export const cardCommand = {
             .setRequired(false)
         )
     )
-    // 10. /card memory (Inspect permanent memory & server setups)
+    // 14. /card memory (Inspect permanent memory & server setups)
     .addSubcommand((sub) =>
       sub
         .setName('memory')
         .setDescription('Inspect permanent server memory, saved channel setups, and storage health (Owner Only)')
     )
-    // 11. /card git-status (Inspect Git commit hash and auto-deploy status)
+    // 15. /card git-status (Inspect Git commit hash and auto-deploy status)
     .addSubcommand((sub) =>
       sub
         .setName('git-status')
         .setDescription('Inspect Git commit hash, deploy status, and webhook pipeline (Owner Only)')
     )
-    // 12. /card git-sync (Pull latest Git commit and restart bot)
+    // 16. /card git-sync (Pull latest Git commit and restart bot)
     .addSubcommand((sub) =>
       sub
         .setName('git-sync')
@@ -1673,9 +1652,9 @@ export const cardCommand = {
     }
 
     // ==========================================
-    // COMMAND: /card set-template (1 template per server)
+    // COMMAND: /card set-template (1 template per server, supports reset)
     // ==========================================
-    if (sub === 'set-template') {
+    if (sub === 'set-template' || sub === 'reset-template') {
       await interaction.deferReply({ ephemeral: false });
 
       const db = loadDatabase();
@@ -1695,7 +1674,7 @@ export const cardCommand = {
       }
 
       // Check if user requested template reset
-      const resetRequested = interaction.options.getBoolean('reset');
+      const resetRequested = sub === 'reset-template' || interaction.options.getBoolean('reset');
       if (resetRequested) {
         deleteServerTemplate(guildId);
         const embed = new EmbedBuilder()
@@ -1823,42 +1802,6 @@ export const cardCommand = {
       return interaction.editReply({ embeds: [embed], files: [file] });
     }
 
-    // ==========================================
-    // COMMAND: /card reset-template
-    // ==========================================
-    if (sub === 'reset-template') {
-      await interaction.deferReply({ ephemeral: false });
-
-      const db = loadDatabase();
-      const guildConfig = db.guilds?.[guildId];
-
-      const isGuildOwner = interaction.guild?.ownerId === interaction.user?.id;
-      const hasAdmin = interaction.memberPermissions?.has(PermissionFlagsBits.Administrator);
-      const hasManage = interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild);
-      const hasStaffRole = guildConfig?.staffRoleId && interaction.member?.roles?.cache?.has(guildConfig.staffRoleId);
-
-      if (!isGuildOwner && !hasAdmin && !hasManage && !hasStaffRole) {
-        return interaction.editReply({
-          content:
-            '❌ **Permission Denied:** Only server administrators, the server owner, members with `Manage Server`, or authorized staff can reset this server\'s card template.',
-        });
-      }
-
-      deleteServerTemplate(guildId);
-
-      const embed = new EmbedBuilder()
-        .setTitle('🔄 Server Template Reverted')
-        .setColor(0x38bdf8)
-        .setDescription(
-          `Successfully removed custom template for **${interaction.guild ? interaction.guild.name : 'this server'}**.\n\n` +
-          `All citizen cards will now use the **Official Standard UOI Template**.\n` +
-          `You can upload a new custom template at any time using \`/card set-template\`!`
-        )
-        .setFooter({ text: 'Union of Indians Registry • Template Management Engine' })
-        .setTimestamp();
-
-      return interaction.editReply({ embeds: [embed] });
-    }
 
     // ==========================================
     // COMMAND: /card whois (Roblox Auto-Detection & Identity Dossier)
@@ -2067,11 +2010,11 @@ export const cardCommand = {
     }
 
     // ==========================================
-    // COMMAND: /card show (Pull card from database)
+    // COMMAND: /card show (Pull card from database with visual rendering)
     // ==========================================
-    if (sub === 'show') {
+    if (sub === 'show' || sub === 'inspect') {
       await interaction.deferReply();
-      const targetUser = interaction.options.getUser('citizen') || interaction.user;
+      const targetUser = interaction.options.getUser('citizen') || interaction.options.getUser('user') || interaction.user;
       const isSelf = targetUser.id === interaction.user.id;
 
       // 1. Implicitly detect server context
@@ -2232,15 +2175,63 @@ export const cardCommand = {
     }
 
     // ==========================================
-    // COMMAND 1: /card generate (Routes to staff review)
+    // COMMAND 1: /card generate (Unified: Routes to staff review or opens interactive modal)
     // ==========================================
-    if (sub === 'generate') {
+    if (sub === 'generate' || sub === 'apply') {
+      const fullName = interaction.options.getString('fullname');
+
+      // If fullname wasn't provided, open the interactive modal application!
+      if (!fullName) {
+        const modal = new ModalBuilder()
+          .setCustomId('card_modal_apply')
+          .setTitle('UOI Citizen Card Application');
+
+        const nameInput = new TextInputBuilder()
+          .setCustomId('fullName')
+          .setLabel('Full Legal Name')
+          .setStyle(TextInputStyle.Short)
+          .setPlaceholder('e.g. Suresh Kumar')
+          .setMinLength(2)
+          .setMaxLength(36)
+          .setRequired(true);
+
+        const genderInput = new TextInputBuilder()
+          .setCustomId('gender')
+          .setLabel('Gender')
+          .setStyle(TextInputStyle.Short)
+          .setPlaceholder('Male / Female / Other')
+          .setMaxLength(20)
+          .setRequired(true);
+
+        const robloxInput = new TextInputBuilder()
+          .setCustomId('roblox')
+          .setLabel('Roblox Username (Optional - auto-detects)')
+          .setStyle(TextInputStyle.Short)
+          .setPlaceholder('Leave blank to auto-detect from linked profile')
+          .setRequired(false);
+
+        const divisionInput = new TextInputBuilder()
+          .setCustomId('division')
+          .setLabel('Division / Department (Optional)')
+          .setStyle(TextInputStyle.Short)
+          .setPlaceholder('Civilian Directorate / Armed Forces / Homeland Security')
+          .setRequired(false);
+
+        modal.addComponents(
+          new ActionRowBuilder().addComponents(nameInput),
+          new ActionRowBuilder().addComponents(genderInput),
+          new ActionRowBuilder().addComponents(robloxInput),
+          new ActionRowBuilder().addComponents(divisionInput)
+        );
+
+        return interaction.showModal(modal);
+      }
+
       await interaction.deferReply({ ephemeral: false });
 
       const targetUser = interaction.options.getUser('citizen') || interaction.user;
       const robloxQuery = interaction.options.getString('roblox');
-      const fullName = interaction.options.getString('fullname');
-      const gender = interaction.options.getString('gender');
+      const gender = interaction.options.getString('gender') || 'Unspecified';
       const division = interaction.options.getString('division') || 'Civilian Directorate';
 
       // Target member in guild for role auto-scanning and nickname resolution
@@ -2526,54 +2517,6 @@ export const cardCommand = {
     // ==========================================
     // COMMAND: /card verify [serial]
     // ==========================================
-    // ==========================================
-    // COMMAND: /card apply (Interactive Modal Application Form)
-    // ==========================================
-    if (sub === 'apply') {
-      const modal = new ModalBuilder()
-        .setCustomId('card_modal_apply')
-        .setTitle('UOI Citizen Card Application');
-
-      const nameInput = new TextInputBuilder()
-        .setCustomId('fullName')
-        .setLabel('Full Legal Name')
-        .setStyle(TextInputStyle.Short)
-        .setPlaceholder('e.g. Suresh Kumar')
-        .setMinLength(2)
-        .setMaxLength(36)
-        .setRequired(true);
-
-      const genderInput = new TextInputBuilder()
-        .setCustomId('gender')
-        .setLabel('Gender')
-        .setStyle(TextInputStyle.Short)
-        .setPlaceholder('Male / Female / Other')
-        .setMaxLength(20)
-        .setRequired(true);
-
-      const robloxInput = new TextInputBuilder()
-        .setCustomId('roblox')
-        .setLabel('Roblox Username (Optional - auto-detects)')
-        .setStyle(TextInputStyle.Short)
-        .setPlaceholder('Leave blank to auto-detect from linked profile')
-        .setRequired(false);
-
-      const divisionInput = new TextInputBuilder()
-        .setCustomId('division')
-        .setLabel('Division / Department (Optional)')
-        .setStyle(TextInputStyle.Short)
-        .setPlaceholder('Civilian Directorate / Armed Forces / Homeland Security')
-        .setRequired(false);
-
-      modal.addComponents(
-        new ActionRowBuilder().addComponents(nameInput),
-        new ActionRowBuilder().addComponents(genderInput),
-        new ActionRowBuilder().addComponents(robloxInput),
-        new ActionRowBuilder().addComponents(divisionInput)
-      );
-
-      return interaction.showModal(modal);
-    }
 
     // ==========================================
     // COMMAND: /card refresh (Citizen Self-Service Avatar & Role Sync)
@@ -2581,10 +2524,10 @@ export const cardCommand = {
     if (sub === 'refresh') {
       await interaction.deferReply({ ephemeral: false });
       const db = loadDatabase();
-      const card = db.cards[interaction.user.id];
+      const card = getGuildCard(db, guildId, interaction.user.id) || db.cards[interaction.user.id];
       if (!card || card.status !== 'ACTIVE') {
         return interaction.editReply({
-          content: '❌ **No Active Card Found:** You do not have an active UOI Citizen Card registered to your Discord account.\nUse `/card apply` or `/card generate` to apply for one!',
+          content: '❌ **No Active Card Found:** You do not have an active UOI Citizen Card registered to your Discord account in this server.\nUse `/card apply` or `/card generate` to apply for one!',
         });
       }
 
@@ -2609,6 +2552,7 @@ export const cardCommand = {
       if (robloxInfo?.avatarUrl) card.avatarUrl = robloxInfo.avatarUrl;
       if (robloxInfo?.username) card.robloxUsername = robloxInfo.username;
       card.lastRefreshedAt = new Date().toISOString();
+      setGuildCard(db, guildId, interaction.user.id, card);
       saveDatabase(db);
 
       const renderResult = await renderCardImage({
@@ -2761,46 +2705,6 @@ export const cardCommand = {
       return interaction.reply({ embeds: [embed] });
     }
 
-    // ==========================================
-    // COMMAND: /card inspect @user (Staff & Admins)
-    // ==========================================
-    if (sub === 'inspect') {
-      const db = loadDatabase();
-      const hasPerm = await checkIsStaffOrAdmin(interaction, db.guilds?.[guildId]);
-      if (!hasPerm) {
-        return interaction.reply({
-          content: '❌ **Permission Denied:** Citizen dossiers and background inspect records can only be viewed by authorized staff officers and administrators.',
-          ephemeral: true,
-        });
-      }
-      const targetUser = interaction.options.getUser('user');
-      const card = db.cards[targetUser.id];
-
-      const embed = new EmbedBuilder()
-        .setTitle(`Citizen Dossier: ${targetUser.tag}`)
-        .setColor(card?.status === 'ACTIVE' ? 0x6366f1 : 0x64748b)
-        .setThumbnail(targetUser.displayAvatarURL({ dynamic: true }))
-        .addFields(
-          { name: 'Discord ID', value: `\`${targetUser.id}\``, inline: true },
-          {
-            name: 'Citizen Card Status',
-            value: card?.status === 'ACTIVE' ? `🟢 Active (\`${card.serialId}\`)` : card?.status === 'REVOKED' ? '🔴 Revoked' : '⚪ None Registered',
-            inline: true,
-          }
-        );
-
-      if (card) {
-        embed.addFields(
-          { name: 'Full Name', value: card.fullName, inline: true },
-          { name: 'Roblox Username', value: `@${card.robloxUsername || 'Unlinked'}`, inline: true },
-          { name: 'Rank Tier', value: `**${card.assignedRank}**`, inline: true },
-          { name: 'Issued At', value: `<t:${Math.floor(new Date(card.issuedAt).getTime() / 1000)}:f>`, inline: true }
-        );
-      }
-
-      embed.setTimestamp();
-      return interaction.reply({ embeds: [embed] });
-    }
 
     // ==========================================
     // COMMAND: /card promote (Staff & Admins)
@@ -3427,8 +3331,82 @@ export const cardCommand = {
         console.warn('[UOI Bot] Delivery channel dispatch error:', delChanErr.message);
       }
 
+      // 4. Send Direct Message (DM) to the person who was accepted
+      let dmSent = false;
+      try {
+        let recipientUser = null;
+        try {
+          recipientUser = await interaction.client.users.fetch(req.targetUser.id);
+        } catch (_) {
+          recipientUser = interaction.guild?.members?.cache?.get(req.targetUser.id)?.user || null;
+        }
+
+        if (recipientUser) {
+          const dmFiles = [];
+          if (cardBuffer) {
+            dmFiles.push(new AttachmentBuilder(cardBuffer, { name: fileName }));
+          }
+
+          const serverName = interaction.guild ? interaction.guild.name : 'Union of Indians';
+          const dmEmbed = new EmbedBuilder()
+            .setTitle('🎉 Your Citizen ID Card Has Been Approved!')
+            .setColor(0x10b981)
+            .setDescription(
+              `Greetings **${req.fullName}**! Your citizen card application for **${serverName}** has been **APPROVED** by staff!\n\n` +
+              `Your official identification credential is now registered in the database and active. Your official card is attached below.`
+            )
+            .addFields(
+              { name: '🏛️ Server', value: serverName, inline: true },
+              { name: '🆔 Serial ID', value: `\`${serialId}\``, inline: true },
+              { name: '🎖️ Rank / Tier', value: `**${req.assignedRank}**`, inline: true },
+              { name: '👤 Full Name', value: req.fullName, inline: true },
+              {
+                name: '🎮 Roblox Profile',
+                value: req.robloxUserId
+                  ? `[@${req.robloxUsername}](https://www.roblox.com/users/${req.robloxUserId}/profile)`
+                  : `@${req.robloxUsername || 'Unlinked'}`,
+                inline: true,
+              },
+              { name: '🏷️ Assigned Nickname', value: `\`${serverNickname}\``, inline: true },
+              { name: '🛡️ Approving Officer', value: `<@${interaction.user.id}> (\`${interaction.user.tag}\`)`, inline: true },
+              {
+                name: '💡 Helpful Tips',
+                value:
+                  `• Run \`/card show\` anytime in **${serverName}** to display your registered card.\n` +
+                  `• Run \`/card refresh\` if your Discord role or Roblox avatar changes in the future.\n` +
+                  `• Your card contains a digital barcode and QR code for instant verification.`,
+                inline: false,
+              }
+            )
+            .setFooter({ text: `Official UOI Registry • ${serverName} • Serial: ${serialId}` })
+            .setTimestamp();
+
+          if (req.robloxAvatarUrl) {
+            dmEmbed.setThumbnail(req.robloxAvatarUrl);
+          }
+          if (cardBuffer) {
+            dmEmbed.setImage(`attachment://${fileName}`);
+          }
+
+          await recipientUser.send({
+            content: `🔔 **Official Credential Notification:** You have been issued a Citizen ID card in **${serverName}**!`,
+            embeds: [dmEmbed],
+            files: dmFiles,
+          });
+          dmSent = true;
+          console.log(`[UOI Bot] 📬 Successfully sent acceptance DM to ${req.targetUser.tag || req.targetUser.id} (${req.targetUser.id})`);
+        }
+      } catch (dmErr) {
+        console.warn(`[UOI Bot] ⚠️ Could not send acceptance DM to ${req.targetUser.id} (user DMs may be closed):`, dmErr.message);
+      }
+
       return interaction.editReply({
-        content: `✅ **Card Successfully Issued!**\nSerial ID: \`${serialId}\` created for <@${req.targetUser.id}>. Server database and records have been updated.`,
+        content:
+          `✅ **Card Successfully Issued!**\n` +
+          `Serial ID: \`${serialId}\` created for <@${req.targetUser.id}>. Server database and records have been updated.\n` +
+          (dmSent
+            ? `📬 **Direct Message:** Sent official card and notification directly to <@${req.targetUser.id}>'s DMs!`
+            : `⚠️ **Direct Message:** Could not DM <@${req.targetUser.id}> (their Discord DMs may be set to friends-only or closed).`),
       });
     }
 
@@ -3490,10 +3468,10 @@ export const cardCommand = {
       const guildConfig = db.guilds?.[guildId] || autoDetectAndSaveSetup(interaction.guild, interaction.channel);
 
       // Check existing active card
-      const existingCard = db.cards[targetUser.id];
+      const existingCard = getGuildCard(db, guildId, targetUser.id) || db.cards[targetUser.id];
       if (existingCard && existingCard.status === 'ACTIVE') {
         return interaction.editReply({
-          content: `⚠️ **Card Generation Blocked:** You already possess an active UOI Citizen Card with Serial \`${existingCard.serialId}\`!`,
+          content: `⚠️ **Card Generation Blocked:** You already possess an active UOI Citizen Card with Serial \`${existingCard.serialId}\` in this server!`,
         });
       }
 
@@ -3693,8 +3671,53 @@ export const cardCommand = {
       }
     } catch (_) {}
 
+    // Send direct message (DM) notification to applicant with staff reason
+    let declineDmSent = false;
+    try {
+      let recipientUser = null;
+      try {
+        recipientUser = await interaction.client.users.fetch(req.targetUser.id);
+      } catch (_) {
+        recipientUser = interaction.guild?.members?.cache?.get(req.targetUser.id)?.user || null;
+      }
+
+      if (recipientUser) {
+        const serverName = interaction.guild ? interaction.guild.name : 'the server';
+        const declineDmEmbed = new EmbedBuilder()
+          .setTitle('📢 UOI Citizen Card Application Update')
+          .setColor(0xef4444)
+          .setDescription(
+            `Hello **${req.fullName}**, your citizen card application for **${serverName}** has been **DECLINED** by staff.`
+          )
+          .addFields(
+            { name: '🏛️ Server', value: serverName, inline: true },
+            { name: '📋 Request ID', value: `\`${req.id}\``, inline: true },
+            { name: '🛡️ Reviewing Officer', value: `<@${interaction.user.id}> (\`${interaction.user.tag}\`)`, inline: true },
+            { name: '❌ Reason for Rejection', value: reason, inline: false },
+            {
+              name: '🔄 How to Re-Apply',
+              value: 'You may correct the issue mentioned above and submit a new application using `/card apply` or `/card generate` in the server.',
+              inline: false,
+            }
+          )
+          .setFooter({ text: `UOI Staff Review Notification • ${serverName}` })
+          .setTimestamp();
+
+        await recipientUser.send({ embeds: [declineDmEmbed] });
+        declineDmSent = true;
+        console.log(`[UOI Bot] 📬 Sent decline DM to ${req.targetUser.tag || req.targetUser.id}`);
+      }
+    } catch (dmErr) {
+      console.warn(`[UOI Bot] Notice: Could not send decline notification DM to ${req.targetUser.id}:`, dmErr.message);
+    }
+
     return interaction.editReply({
-      content: `❌ **Card Application Declined.**\nRequest \`${requestId}\` marked as DECLINED with reason: "${reason}".`,
+      content:
+        `❌ **Card Application Declined.**\n` +
+        `Request \`${requestId}\` marked as DECLINED with reason: "${reason}".\n` +
+        (declineDmSent
+          ? `📬 **Direct Message:** Sent rejection reason directly to <@${req.targetUser.id}>'s DMs.`
+          : `⚠️ **Direct Message:** Could not DM <@${req.targetUser.id}> (DMs closed or friends-only).`),
     });
   },
 };

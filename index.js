@@ -649,6 +649,7 @@ if (!token || token === 'your_bot_token_here' || token.includes('your_token')) {
     intents: [
       GatewayIntentBits.Guilds,
       GatewayIntentBits.GuildMembers,
+      GatewayIntentBits.DirectMessages,
     ],
   });
 
