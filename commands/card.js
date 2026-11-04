@@ -874,6 +874,98 @@ export async function checkAndExpirePendingApplications(client) {
 }
 
 /**
+ * Bulletproof Interaction Helpers
+ * Resilient against DiscordAPIError 10062 (Unknown interaction),
+ * 40060 (Interaction has already been acknowledged), and token expirations.
+ */
+export async function safeDeferReply(interaction, options = {}) {
+  try {
+    if (!interaction) return false;
+    if (interaction.deferred || interaction.replied) return true;
+    await interaction.deferReply(options);
+    return true;
+  } catch (err) {
+    if (
+      err.code === 10062 ||
+      err.code === 40060 ||
+      err.message?.includes('Unknown interaction') ||
+      err.message?.includes('already been acknowledged')
+    ) {
+      console.warn(`[UOI Bot] Non-fatal interaction notice during defer: ${err.message}`);
+      return false;
+    }
+    console.warn('[UOI Bot] Warning during safeDeferReply:', err.message);
+    return false;
+  }
+}
+
+export async function safeEditReply(interaction, options) {
+  try {
+    if (!interaction) return null;
+    if (interaction.deferred || interaction.replied) {
+      return await interaction.editReply(options);
+    }
+    return await interaction.reply(options);
+  } catch (err) {
+    if (
+      err.code === 10062 ||
+      err.code === 40060 ||
+      err.message?.includes('Unknown interaction') ||
+      err.message?.includes('already been acknowledged')
+    ) {
+      console.warn(`[UOI Bot] Non-fatal interaction notice during editReply: ${err.message}`);
+      return null;
+    }
+    console.warn('[UOI Bot] Warning in safeEditReply:', err.message);
+    return null;
+  }
+}
+
+export async function safeReply(interaction, options) {
+  try {
+    if (!interaction) return null;
+    if (interaction.deferred || interaction.replied) {
+      return await interaction.editReply(options).catch((err) => {
+        if (err.code === 10062 || err.code === 40060) return null;
+        return interaction.followUp(options).catch(() => null);
+      });
+    }
+    return await interaction.reply(options);
+  } catch (err) {
+    if (
+      err.code === 10062 ||
+      err.code === 40060 ||
+      err.message?.includes('Unknown interaction') ||
+      err.message?.includes('already been acknowledged')
+    ) {
+      console.warn(`[UOI Bot] Non-fatal interaction notice during safeReply: ${err.message}`);
+      return null;
+    }
+    console.warn('[UOI Bot] Warning in safeReply:', err.message);
+    return null;
+  }
+}
+
+export async function safeFollowUp(interaction, options) {
+  try {
+    if (!interaction) return null;
+    return await interaction.followUp(options);
+  } catch (err) {
+    if (
+      err.code === 10062 ||
+      err.code === 40060 ||
+      err.message?.includes('Unknown interaction') ||
+      err.message?.includes('already been acknowledged')
+    ) {
+      console.warn(`[UOI Bot] Non-fatal interaction notice during safeFollowUp: ${err.message}`);
+      return null;
+    }
+    console.warn('[UOI Bot] Warning in safeFollowUp:', err.message);
+    return null;
+  }
+}
+
+/**
  * Stamps date, time, 2-month expiry, and reminder flags on a card record.
  * Handles both marked and unmarked formats.
  */
@@ -2598,23 +2690,30 @@ export const cardCommand = {
       discordTag: interaction.user.tag,
     };
 
+    // If opening interactive application modal form, do NOT defer immediately (modals require virgin interaction)
+    const isModalOpen = (sub === 'generate' || sub === 'apply') && !interaction.options.getString('fullname');
+
+    if (!isModalOpen) {
+      const isEphemeral = sub === 'view-template' || sub === 'import' || sub === 'export' || sub === 'memory' || sub === 'git-status';
+      await safeDeferReply(interaction, { ephemeral: isEphemeral });
+    }
+
     // ==========================================
     // COMMAND: /card setup (Required initial setup)
     // ==========================================
     if (sub === 'setup') {
-      await interaction.deferReply({ ephemeral: false });
-
       // Check permission: ManageGuild or Administrator
       if (
         interaction.member &&
         !interaction.member.permissions.has(PermissionFlagsBits.ManageGuild) &&
         !interaction.member.permissions.has(PermissionFlagsBits.Administrator)
       ) {
-        return interaction.editReply({
+        return safeEditReply(interaction, {
           content: '❌ **Permission Denied:** Only server administrators or members with `Manage Server` can configure the UOI Card System.',
         });
       }
 
+      const db = loadDatabase();
       const staffChannel = interaction.options.getChannel('staff_channel');
       const deliveryChannel = interaction.options.getChannel('delivery_channel');
       const staffRole = interaction.options.getRole('staff_role');
@@ -2627,7 +2726,6 @@ export const cardCommand = {
       const roverApiKey = interaction.options.getString('rover_api_key');
       const applicationExpiryHours = interaction.options.getInteger('application_expiry_hours') || db.guilds?.[guildId]?.applicationExpiryHours || 48;
 
-      const db = loadDatabase();
       db.guilds = db.guilds || {};
       db.guilds[guildId] = {
         isSetup: true,
@@ -2708,7 +2806,7 @@ export const cardCommand = {
         .setFooter({ text: 'Union of Indians Official Bot Registry • Permanent Memory Active' })
         .setTimestamp();
 
-      return interaction.editReply({ embeds: [embed] });
+      return safeEditReply(interaction, { embeds: [embed] });
     }
 
     // ==========================================
@@ -2754,14 +2852,14 @@ export const cardCommand = {
         .setFooter({ text: 'Union of Indians Registry • Configuration Lock' })
         .setTimestamp();
 
-      return interaction.reply({ embeds: [embed], ephemeral: true });
+      return safeEditReply(interaction, { embeds: [embed] });
     }
 
     // ==========================================
     // COMMAND: /card set-template (1 template per server, supports reset)
     // ==========================================
     if (sub === 'set-template' || sub === 'reset-template') {
-      await interaction.deferReply({ ephemeral: false });
+      await safeDeferReply(interaction, { ephemeral: false });
 
       const db = loadDatabase();
       const guildConfig = db.guilds?.[guildId];
@@ -3363,10 +3461,15 @@ export const cardCommand = {
           new ActionRowBuilder().addComponents(divisionInput)
         );
 
-        return interaction.showModal(modal);
+        try {
+          return await interaction.showModal(modal);
+        } catch (modalErr) {
+          console.warn('[UOI Bot] Notice showing modal:', modalErr.message);
+          return null;
+        }
       }
 
-      await interaction.deferReply({ ephemeral: false });
+      await safeDeferReply(interaction, { ephemeral: false });
 
       const targetUser = interaction.options.getUser('citizen') || interaction.user;
       const robloxQuery = interaction.options.getString('roblox');
@@ -4066,7 +4169,7 @@ export const cardCommand = {
           .setColor(0xef4444)
           .setDescription(`❌ **UNVERIFIED OR FRAUDULENT SERIAL ID**\nSerial \`${serial}\` was not found in the official UOI database.`)
           .setTimestamp();
-        return interaction.reply({ embeds: [embed] });
+        return safeEditReply(interaction, { embeds: [embed] });
       }
 
       const isActive = card.status === 'ACTIVE';
@@ -4087,7 +4190,7 @@ export const cardCommand = {
           { name: 'Issued Date', value: `<t:${Math.floor(new Date(card.issuedAt).getTime() / 1000)}:d>`, inline: true }
         )
         .setTimestamp();
-      return interaction.reply({ embeds: [embed] });
+      return safeEditReply(interaction, { embeds: [embed] });
     }
 
 
@@ -4098,9 +4201,8 @@ export const cardCommand = {
       const db = loadDatabase();
       const hasPerm = await checkIsStaffOrAdmin(interaction, db.guilds?.[guildId]);
       if (!hasPerm) {
-        return interaction.reply({
+        return safeEditReply(interaction, {
           content: '❌ **Permission Denied:** Only authorized officers, administrators, or the server owner can promote citizens.',
-          ephemeral: true,
         });
       }
       const targetUser = interaction.options.getUser('citizen');
@@ -4125,7 +4227,7 @@ export const cardCommand = {
         )
         .setFooter({ text: card ? 'Database record updated successfully' : 'Notice: No database card on file' })
         .setTimestamp();
-      return interaction.reply({ embeds: [embed] });
+      return safeEditReply(interaction, { embeds: [embed] });
     }
 
     // ==========================================
@@ -4135,9 +4237,8 @@ export const cardCommand = {
       const db = loadDatabase();
       const hasPerm = await checkIsStaffOrAdmin(interaction, db.guilds?.[guildId]);
       if (!hasPerm) {
-        return interaction.reply({
+        return safeEditReply(interaction, {
           content: '❌ **Permission Denied:** Only authorized security officers, administrators, or the server owner can revoke citizen cards.',
-          ephemeral: true,
         });
       }
       const serial = interaction.options.getString('serial').toUpperCase();
@@ -4145,7 +4246,7 @@ export const cardCommand = {
 
       const card = resolveCardBySerial(db, serial);
       if (!card) {
-        return interaction.editReply({
+        return safeEditReply(interaction, {
           content: `❌ Card with Serial ID \`${serial}\` was not found in the registry.`,
         });
       }
@@ -4153,7 +4254,7 @@ export const cardCommand = {
       // Ensure officers can only revoke cards issued within their own server
       if (guildId && card.guildId && card.guildId !== guildId) {
         const issuerName = db.guilds?.[card.guildId]?.name || `Server ${card.guildId}`;
-        return interaction.editReply({
+        return safeEditReply(interaction, {
           content: `❌ **Permission Denied:** Serial \`${serial}\` was issued by another server (**${issuerName}**).\nYou can only revoke cards issued within **${interaction.guild?.name || 'this server'}**!`,
         });
       }
@@ -4175,7 +4276,7 @@ export const cardCommand = {
         )
         .setFooter({ text: 'Database entry marked as REVOKED' })
         .setTimestamp();
-      return interaction.reply({ embeds: [embed] });
+      return safeEditReply(interaction, { embeds: [embed] });
     }
 
     // ==========================================
@@ -4517,7 +4618,7 @@ export const cardCommand = {
         interaction.member?.permissions?.has(PermissionFlagsBits.Administrator) ||
         interaction.member?.permissions?.has(PermissionFlagsBits.ManageGuild);
       if (!hasStaffRole && !isAdmin) {
-        return interaction.reply({
+        return safeReply(interaction, {
           content: `❌ **Permission Denied:** You need the <@&${guildConfig.staffRoleId}> role to review citizen card applications.`,
           ephemeral: true,
         });
@@ -4527,7 +4628,7 @@ export const cardCommand = {
         interaction.member?.permissions?.has(PermissionFlagsBits.Administrator) ||
         interaction.member?.permissions?.has(PermissionFlagsBits.ManageGuild);
       if (!isAdmin) {
-        return interaction.reply({
+        return safeReply(interaction, {
           content: '❌ **Permission Denied:** Only administrators or members with `Manage Server` can review citizen card applications.',
           ephemeral: true,
         });
@@ -4540,14 +4641,14 @@ export const cardCommand = {
       const req = db.pendingRequests?.[requestId];
 
       if (!req) {
-        return interaction.reply({
+        return safeReply(interaction, {
           content: `❌ Card application record \`${requestId}\` not found in the database.`,
           ephemeral: true,
         });
       }
 
       if (req.status !== 'PENDING') {
-        return interaction.reply({
+        return safeReply(interaction, {
           content: `⚠️ This card application has already been marked as **${req.status}** by <@${req.reviewedBy?.discordId || 'Staff'}>.`,
           ephemeral: true,
         });
@@ -4570,13 +4671,13 @@ export const cardCommand = {
           await interaction.message.edit({ components: [disabledRow] }).catch(() => {});
         }
 
-        return interaction.reply({
+        return safeReply(interaction, {
           content: `⏰ **Application Expired:** This card request has exceeded its 48-hour review window and expired. The citizen is cleared to submit a fresh application.`,
           ephemeral: true,
         });
       }
 
-      await interaction.deferReply({ ephemeral: true });
+      await safeDeferReply(interaction, { ephemeral: true });
 
       // Generate Serial ID & Server Nickname
       const serialId = `UOI-${new Date().getFullYear()}-${Math.floor(100000 + Math.random() * 900000)}`;
@@ -4860,7 +4961,7 @@ export const cardCommand = {
         console.warn(`[UOI Bot] ⚠️ Could not send acceptance DM to ${req.targetUser.id} (user DMs may be closed):`, dmErr.message);
       }
 
-      return interaction.editReply({
+      return safeEditReply(interaction, {
         content:
           `✅ **Card Successfully Issued!**\n` +
           `Serial ID: \`${serialId}\` created for <@${req.targetUser.id}>. Server database and records have been updated.\n` +
@@ -4876,14 +4977,14 @@ export const cardCommand = {
       const req = db.pendingRequests?.[requestId];
 
       if (!req) {
-        return interaction.reply({
+        return safeReply(interaction, {
           content: `❌ Card application \`${requestId}\` not found in database.`,
           ephemeral: true,
         });
       }
 
       if (req.status !== 'PENDING') {
-        return interaction.reply({
+        return safeReply(interaction, {
           content: `⚠️ This request has already been marked as **${req.status}** by <@${req.reviewedBy?.discordId || 'Staff'}>.`,
           ephemeral: true,
         });
@@ -4906,7 +5007,7 @@ export const cardCommand = {
           await interaction.message.edit({ components: [disabledRow] }).catch(() => {});
         }
 
-        return interaction.reply({
+        return safeReply(interaction, {
           content: `⏰ **Application Expired:** This card request has exceeded its 48-hour review window and expired. The applicant has been unlocked to reapply.`,
           ephemeral: true,
         });
@@ -4927,7 +5028,12 @@ export const cardCommand = {
         .setMaxLength(500);
 
       modal.addComponents(new ActionRowBuilder().addComponents(reasonInput));
-      return interaction.showModal(modal);
+      try {
+        return await interaction.showModal(modal);
+      } catch (modalErr) {
+        console.warn('[UOI Bot] Notice showing decline modal:', modalErr.message);
+        return null;
+      }
     }
   },
 
