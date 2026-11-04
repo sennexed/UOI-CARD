@@ -812,12 +812,13 @@ if (!token || token === 'your_bot_token_here' || token.includes('your_token')) {
         try {
           await cardCommand.execute(interaction);
         } catch (err) {
-          console.error('[UOI Bot] Error executing /card command:', err);
-          const errMsg = 'There was an error executing this command on the server.';
+          console.error('[UOI Bot] ❌ Error executing /card command:', err);
+          console.error(err.stack);
+          const errMsg = `❌ Error executing command: ${err.message || 'Unknown server error'}`;
           if (interaction.deferred || interaction.replied) {
-            await interaction.followUp({ content: errMsg, ephemeral: true });
+            await interaction.followUp({ content: errMsg, ephemeral: true }).catch(() => {});
           } else {
-            await interaction.reply({ content: errMsg, ephemeral: true });
+            await interaction.reply({ content: errMsg, ephemeral: true }).catch(() => {});
           }
         }
       }
@@ -830,9 +831,13 @@ if (!token || token === 'your_bot_token_here' || token.includes('your_token')) {
         try {
           await cardCommand.handleButton(interaction);
         } catch (err) {
-          console.error('[UOI Bot] Error handling button interaction:', err);
-          if (!interaction.replied && !interaction.deferred) {
-            await interaction.reply({ content: '❌ Error processing this request.', ephemeral: true });
+          console.error('[UOI Bot] ❌ Error handling button interaction:', err);
+          console.error(err.stack);
+          const errMsg = `❌ Error processing button: ${err.message || 'Unknown error'}`;
+          if (interaction.deferred || interaction.replied) {
+            await interaction.followUp({ content: errMsg, ephemeral: true }).catch(() => {});
+          } else {
+            await interaction.reply({ content: errMsg, ephemeral: true }).catch(() => {});
           }
         }
       }
@@ -845,9 +850,13 @@ if (!token || token === 'your_bot_token_here' || token.includes('your_token')) {
         try {
           await cardCommand.handleModal(interaction);
         } catch (err) {
-          console.error('[UOI Bot] Error handling modal interaction:', err);
-          if (!interaction.replied && !interaction.deferred) {
-            await interaction.reply({ content: '❌ Error processing rejection modal.', ephemeral: true });
+          console.error('[UOI Bot] ❌ Error handling modal interaction:', err);
+          console.error(err.stack);
+          const errMsg = `❌ Error processing modal: ${err.message || 'Unknown error'}`;
+          if (interaction.deferred || interaction.replied) {
+            await interaction.followUp({ content: errMsg, ephemeral: true }).catch(() => {});
+          } else {
+            await interaction.reply({ content: errMsg, ephemeral: true }).catch(() => {});
           }
         }
       }
