@@ -902,10 +902,15 @@ export async function safeDeferReply(interaction, options = {}) {
 export async function safeEditReply(interaction, options) {
   try {
     if (!interaction) return null;
-    if (interaction.deferred || interaction.replied) {
+    // Try editReply first (handles deferred or replied interactions)
+    try {
       return await interaction.editReply(options);
+    } catch (editErr) {
+      // If editReply failed because interaction wasn't deferred/replied, use reply
+      return await interaction.reply(options).catch(async () => {
+        return await interaction.followUp(options).catch(() => null);
+      });
     }
-    return await interaction.reply(options);
   } catch (err) {
     if (
       err.code === 10062 ||
@@ -913,7 +918,7 @@ export async function safeEditReply(interaction, options) {
       err.message?.includes('Unknown interaction') ||
       err.message?.includes('already been acknowledged')
     ) {
-      console.warn(`[UOI Bot] Non-fatal interaction notice during editReply: ${err.message}`);
+      console.warn(`[UOI Bot] Non-fatal interaction notice during safeEditReply: ${err.message}`);
       return null;
     }
     console.warn('[UOI Bot] Warning in safeEditReply:', err.message);
@@ -924,13 +929,13 @@ export async function safeEditReply(interaction, options) {
 export async function safeReply(interaction, options) {
   try {
     if (!interaction) return null;
-    if (interaction.deferred || interaction.replied) {
-      return await interaction.editReply(options).catch((err) => {
-        if (err.code === 10062 || err.code === 40060) return null;
-        return interaction.followUp(options).catch(() => null);
+    try {
+      return await interaction.reply(options);
+    } catch (replyErr) {
+      return await interaction.editReply(options).catch(async () => {
+        return await interaction.followUp(options).catch(() => null);
       });
     }
-    return await interaction.reply(options);
   } catch (err) {
     if (
       err.code === 10062 ||
