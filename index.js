@@ -696,6 +696,8 @@ if (!token || token === 'your_bot_token_here' || token.includes('your_token')) {
       GatewayIntentBits.Guilds,
       GatewayIntentBits.GuildMembers,
       GatewayIntentBits.DirectMessages,
+      GatewayIntentBits.GuildPresences,
+      GatewayIntentBits.MessageContent,
     ],
   });
 

@@ -2707,6 +2707,12 @@ export const cardCommand = {
     // COMMAND: /card setup (Required initial setup)
     // ==========================================
     if (sub === 'setup') {
+      if (!guildId) {
+        return safeEditReply(interaction, {
+          content: '❌ **Server Only Command:** `/card setup` can only be executed inside a Discord server.',
+        });
+      }
+
       // Check permission: ManageGuild or Administrator
       if (
         interaction.member &&
@@ -2732,7 +2738,11 @@ export const cardCommand = {
       const applicationExpiryHours = interaction.options.getInteger('application_expiry_hours') || db.guilds?.[guildId]?.applicationExpiryHours || 48;
 
       db.guilds = db.guilds || {};
+      db.guilds[guildId] = db.guilds[guildId] || {};
+      const existingGuild = db.guilds[guildId];
+
       db.guilds[guildId] = {
+        ...existingGuild,
         isSetup: true,
         autoConfigured: false,
         staffChannelId: staffChannel.id,
@@ -2741,16 +2751,16 @@ export const cardCommand = {
         deliveryChannelName: deliveryChannel ? deliveryChannel.name : null,
         staffRoleId: effectiveStaffRole ? effectiveStaffRole.id : null,
         staffRoleName: effectiveStaffRole ? effectiveStaffRole.name : null,
-        verifiedRoleId: verifiedRole ? verifiedRole.id : (db.guilds[guildId]?.verifiedRoleId || null),
-        verifiedRoleName: verifiedRole ? verifiedRole.name : (db.guilds[guildId]?.verifiedRoleName || null),
-        auditChannelId: auditChannel ? auditChannel.id : (db.guilds[guildId]?.auditChannelId || null),
-        auditChannelName: auditChannel ? auditChannel.name : (db.guilds[guildId]?.auditChannelName || null),
+        verifiedRoleId: verifiedRole ? verifiedRole.id : (existingGuild.verifiedRoleId || null),
+        verifiedRoleName: verifiedRole ? verifiedRole.name : (existingGuild.verifiedRoleName || null),
+        auditChannelId: auditChannel ? auditChannel.id : (existingGuild.auditChannelId || null),
+        auditChannelName: auditChannel ? auditChannel.name : (existingGuild.auditChannelName || null),
         autoStaffRoleDetected: !staffRole && !!autoStaffRole,
         autoNickname,
         applicationExpiryHours,
-        bloxlinkApiKey: bloxlinkApiKey && !bloxlinkApiKey.includes('http') && bloxlinkApiKey.trim().length >= 8 ? bloxlinkApiKey.trim() : (db.guilds[guildId]?.bloxlinkApiKey || null),
-        roverApiKey: roverApiKey && !roverApiKey.includes('http') && roverApiKey.trim().length >= 8 ? roverApiKey.trim() : (db.guilds[guildId]?.roverApiKey || null),
-        setupAt: new Date().toISOString(),
+        bloxlinkApiKey: bloxlinkApiKey && !bloxlinkApiKey.includes('http') && bloxlinkApiKey.trim().length >= 8 ? bloxlinkApiKey.trim() : (existingGuild.bloxlinkApiKey || null),
+        roverApiKey: roverApiKey && !roverApiKey.includes('http') && roverApiKey.trim().length >= 8 ? roverApiKey.trim() : (existingGuild.roverApiKey || null),
+        setupAt: existingGuild.setupAt || new Date().toISOString(),
         setupBy: {
           discordId: interaction.user.id,
           discordTag: interaction.user.tag,
@@ -3016,7 +3026,7 @@ export const cardCommand = {
     // COMMAND: /card whois (Roblox Auto-Detection & Identity Dossier)
     // ==========================================
     if (sub === 'whois') {
-      await interaction.deferReply({ ephemeral: false });
+      await safeDeferReply(interaction, { ephemeral: false });
       const targetUser = interaction.options.getUser('citizen') || interaction.user;
       const manualQuery = interaction.options.getString('roblox');
 
@@ -3096,7 +3106,7 @@ export const cardCommand = {
     // COMMAND: /card link (Link Roblox Profile Permanently)
     // ==========================================
     if (sub === 'link') {
-      await interaction.deferReply();
+      await safeDeferReply(interaction);
       const targetUser = interaction.options.getUser('citizen') || interaction.user;
       const robloxQuery = interaction.options.getString('roblox');
 
@@ -3181,7 +3191,7 @@ export const cardCommand = {
     // COMMAND: /card unlink (Unlink Roblox Profile)
     // ==========================================
     if (sub === 'unlink') {
-      await interaction.deferReply();
+      await safeDeferReply(interaction);
       const targetUser = interaction.options.getUser('citizen') || interaction.user;
 
       if (targetUser.id !== interaction.user.id) {
@@ -3222,7 +3232,7 @@ export const cardCommand = {
     // COMMAND: /card show (Pull card from database with visual rendering)
     // ==========================================
     if (sub === 'show' || sub === 'inspect') {
-      await interaction.deferReply();
+      await safeDeferReply(interaction);
       const targetUser = interaction.options.getUser('citizen') || interaction.options.getUser('user') || interaction.user;
       const isSelf = targetUser.id === interaction.user.id;
 
@@ -3793,7 +3803,7 @@ export const cardCommand = {
     // COMMAND: /card refresh (Citizen Self-Service Avatar & Role Sync)
     // ==========================================
     if (sub === 'refresh') {
-      await interaction.deferReply({ ephemeral: false });
+      await safeDeferReply(interaction, { ephemeral: false });
       const db = loadDatabase();
       const card = getGuildCard(db, guildId, interaction.user.id) || db.cards[interaction.user.id];
       if (!card || card.status !== 'ACTIVE') {
@@ -3876,7 +3886,7 @@ export const cardCommand = {
     // COMMAND: /card export (Download Card Files - Owner & Admin Only)
     // ==========================================
     if (sub === 'export') {
-      await interaction.deferReply({ ephemeral: true });
+      await safeDeferReply(interaction, { ephemeral: true });
       const hasPerm = await checkIsOwnerOrAdmin(interaction);
       if (!hasPerm) {
         return interaction.editReply({
@@ -4010,7 +4020,7 @@ export const cardCommand = {
     // COMMAND: /card import (Upload Card Files - Multiple Files & Unmarked Format Support)
     // ==========================================
     if (sub === 'import') {
-      await interaction.deferReply({ ephemeral: true });
+      await safeDeferReply(interaction, { ephemeral: true });
       const hasPerm = await checkIsOwnerOrAdmin(interaction);
       if (!hasPerm) {
         return interaction.editReply({
@@ -4288,7 +4298,7 @@ export const cardCommand = {
     // COMMAND: /card botstyle (Custom Bot Name Styles with Font 10 Sinistre)
     // ==========================================
     if (sub === 'botstyle') {
-      await interaction.deferReply({ ephemeral: false });
+      await safeDeferReply(interaction, { ephemeral: false });
 
       if (
         interaction.member &&
@@ -4455,7 +4465,7 @@ export const cardCommand = {
     // COMMAND: /card memory (Inspect permanent memory & server setups) [Owner Only]
     // ==========================================
     if (sub === 'memory') {
-      await interaction.deferReply({ ephemeral: true });
+      await safeDeferReply(interaction, { ephemeral: true });
       const isOwner = await checkIsOwner(interaction);
       if (!isOwner) {
         return interaction.editReply({
@@ -4529,7 +4539,7 @@ export const cardCommand = {
     // COMMAND: /card git-status (Inspect Git & Auto-Deploy Pipeline) [Owner Only]
     // ==========================================
     if (sub === 'git-status') {
-      await interaction.deferReply({ ephemeral: true });
+      await safeDeferReply(interaction, { ephemeral: true });
       const isOwner = await checkIsOwner(interaction);
       if (!isOwner) {
         return interaction.editReply({
@@ -4576,7 +4586,7 @@ export const cardCommand = {
     // COMMAND: /card git-sync (Pull latest commit & restart)
     // ==========================================
     if (sub === 'git-sync') {
-      await interaction.deferReply({ ephemeral: false });
+      await safeDeferReply(interaction, { ephemeral: false });
 
       const isAdmin =
         interaction.member?.permissions?.has(PermissionFlagsBits.Administrator) ||
@@ -5050,7 +5060,7 @@ export const cardCommand = {
 
     // Handle interactive application modal: card_modal_apply
     if (customId === 'card_modal_apply') {
-      await interaction.deferReply({ ephemeral: false });
+      await safeDeferReply(interaction, { ephemeral: false });
       const targetUser = interaction.user;
       const fullName = interaction.fields.getTextInputValue('fullName');
       const gender = interaction.fields.getTextInputValue('gender');
@@ -5233,7 +5243,7 @@ export const cardCommand = {
       return interaction.reply({ content: `⏰ **Application Expired:** Request \`${requestId}\` has exceeded its 48-hour review window and expired.`, ephemeral: true });
     }
 
-    await interaction.deferReply({ ephemeral: true });
+    await safeDeferReply(interaction, { ephemeral: true });
 
     req.status = 'DECLINED';
     req.declineReason = reason;
