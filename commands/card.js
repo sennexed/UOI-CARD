@@ -2966,7 +2966,7 @@ export const cardCommand = {
     // COMMAND: /card view-template
     // ==========================================
     if (sub === 'view-template') {
-      await interaction.deferReply({ ephemeral: true });
+      await safeDeferReply(interaction, { ephemeral: true });
 
       const resolved = await resolveTemplateImage(guildId);
       const status = getServerTemplateStatus(guildId);

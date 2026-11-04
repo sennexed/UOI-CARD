@@ -1,0 +1,93 @@
+[10:37:10] Server marked as running
+[10:37:10] v21.7.3
+[10:37:10] :/home/container$ [ -f data/cards.json ] && cp data/cards.json /tmp/cards.json; rm -f template.png public/template.png && git fetch origin && git reset --hard origin/main && [ -f /tmp/cards.json ] && cp /tmp/cards.json data/cards.json; npm install --omit=dev --no-audit --no-fund && node index.js
+[10:37:10] HEAD is now at 5ec5f08 fix(commands): improve robustness of interaction replies
+[10:37:10] \|/-\|/-\|/-\|/-\|/-\|/-\|/-
+[10:37:10] up to date in 15s
+[10:37:10] -[UOI Bot] 🎨 Best canvas engine initialized: @napi-rs/canvas (Rust / Skia Engine) (3 font families registered)
+[10:37:10] [UOI Bot] Connecting to Discord Gateway...
+[10:37:10] [UOI Bot] 🌐 Healthcheck listener active on port 3000
+[10:37:10] 👀 [Git Sync] Auto-Restart on commit is ACTIVE (Webhook endpoint: /api/webhook/github, Polling interval: 45s)
+[10:37:10] [UOI Bot] ✅ Successfully logged in as UOI IDENTITY bot#5067
+[10:37:10] [UOI Bot] Registering /card slash command with Discord API...
+[10:37:11] [UOI Bot] ✅ Slash command /card registered successfully!
+[10:37:11] [UOI Bot] 🧠 Synchronizing permanent server memory and setups...
+[10:37:12] [UOI Bot] 🧠 Permanent Memory Synchronized: 3 total servers remembered (2 active setups configured).
+[10:37:12] [UOI Bot] 🎨 Restoring server Bot Styles (25 themes, 9 effects, auto-role colors)...
+[10:37:12] (node:36) Warning: Passing "color" to RoleManager#edit() is deprecated. Use "colors" instead.
+[10:37:12] (Use `node --trace-warnings ...` to show where the warning was created)
+[10:37:13] [UOI Bot] 🎨 Applied style to UOI LABORATORY (1126909194826682408): Indian Tricolor (Two-Tone Gradient)
+[10:37:14] [UOI Bot] 🎨 Applied style to Union of Indians (1467485915374162025): Indian Tricolor (Two-Tone Gradient)
+[10:37:14] [UOI Bot] ⏳ Starting 2-Month Card Expiration Sentinel...
+[10:37:14] [UOI Bot] ⏰ Starting 48-Hour Pending Application Expiry Sentinel...
+[10:37:27] (node:36) Warning: Supplying "ephemeral" for interaction response options is deprecated. Utilize flags instead.
+[10:37:27] [UOI Bot] ❌ Error executing /card command: DiscordjsError [InteractionAlreadyReplied]: The reply to this interaction has already been sent or deferred.
+[10:37:27]     at ChatInputCommandInteraction.deferReply (/home/container/node_modules/discord.js/src/structures/interfaces/InteractionResponses.js:93:46)
+[10:37:27]     at Object.execute (file:///home/container/commands/card.js:3225:25)
+[10:37:27]     at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+[10:37:27]     at async Client.<anonymous> (file:///home/container/index.js:813:11) {
+[10:37:27]   code: 'InteractionAlreadyReplied'
+[10:37:27] }
+[10:37:27] DiscordjsError [InteractionAlreadyReplied]: The reply to this interaction has already been sent or deferred.
+[10:37:27]     at ChatInputCommandInteraction.deferReply (/home/container/node_modules/discord.js/src/structures/interfaces/InteractionResponses.js:93:46)
+[10:37:27]     at Object.execute (file:///home/container/commands/card.js:3225:25)
+[10:37:27]     at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+[10:37:27]     at async Client.<anonymous> (file:///home/container/index.js:813:11)
+[10:37:43] Server marked as stopping
+[10:37:44] Server marked as offline
+[10:37:44] [Wispbyte]: Checking server disk space usage, this could take a few seconds...
+[10:37:44] [Wispbyte]: Updating process configuration files...
+[10:37:44] [Wispbyte]: Ensuring file permissions are set correctly, this could take a few seconds...
+[10:37:44] Server marked as starting
+[10:37:45] [Wispbyte]: Pulling Docker container image, this could take a few minutes to complete...
+[10:37:45] [Wispbyte]: Finished pulling Docker container image
+[10:37:47] v21.7.3
+[10:37:47] Server marked as running
+[10:37:47] :/home/container$ [ -f data/cards.json ] && cp data/cards.json /tmp/cards.json; rm -f template.png public/template.png && git fetch origin && git reset --hard origin/main && [ -f /tmp/cards.json ] && cp /tmp/cards.json data/cards.json; npm install --omit=dev --no-audit --no-fund && node index.js
+[10:37:47] HEAD is now at 5ec5f08 fix(commands): improve robustness of interaction replies
+[10:37:52] \|/-\|/-\|
+[10:37:52] up to date in 4s
+[10:37:55] |[UOI Bot] 🎨 Best canvas engine initialized: @napi-rs/canvas (Rust / Skia Engine) (3 font families registered)
+[10:37:55] [UOI Bot] Connecting to Discord Gateway...
+[10:37:56] [UOI Bot] 🌐 Healthcheck listener active on port 3000
+[10:37:56] 👀 [Git Sync] Auto-Restart on commit is ACTIVE (Webhook endpoint: /api/webhook/github, Polling interval: 45s)
+[10:37:57] [UOI Bot] ✅ Successfully logged in as UOI IDENTITY bot#5067
+[10:37:57] [UOI Bot] Registering /card slash command with Discord API...
+[10:37:57] [UOI Bot] ✅ Slash command /card registered successfully!
+[10:37:57] [UOI Bot] 🧠 Synchronizing permanent server memory and setups...
+[10:37:59] [UOI Bot] 🧠 Permanent Memory Synchronized: 3 total servers remembered (2 active setups configured).
+[10:37:59] [UOI Bot] 🎨 Restoring server Bot Styles (25 themes, 9 effects, auto-role colors)...
+[10:37:59] (node:36) Warning: Passing "color" to RoleManager#edit() is deprecated. Use "colors" instead.
+[10:37:59] (Use `node --trace-warnings ...` to show where the warning was created)
+[10:37:59] [UOI Bot] 🎨 Applied style to UOI LABORATORY (1126909194826682408): Indian Tricolor (Two-Tone Gradient)
+[10:38:00] [UOI Bot] 🎨 Applied style to Union of Indians (1467485915374162025): Indian Tricolor (Two-Tone Gradient)
+[10:38:00] [UOI Bot] ⏳ Starting 2-Month Card Expiration Sentinel...
+[10:38:00] [UOI Bot] ⏰ Starting 48-Hour Pending Application Expiry Sentinel...
+[10:38:43] (node:36) Warning: Supplying "ephemeral" for interaction response options is deprecated. Utilize flags instead.
+[10:38:44] [UOI Bot] Non-fatal interaction notice during defer: Interaction has already been acknowledged.
+[10:38:44] [UOI Bot] ❌ Error executing /card command: DiscordAPIError[40060]: Interaction has already been acknowledged.
+[10:38:44]     at handleErrors (/home/container/node_modules/@discordjs/rest/dist/index.js:791:13)
+[10:38:44]     at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+[10:38:44]     at async BurstHandler.runRequest (/home/container/node_modules/@discordjs/rest/dist/index.js:898:23)
+[10:38:44]     at async _REST.request (/home/container/node_modules/@discordjs/rest/dist/index.js:1342:22)
+[10:38:44]     at async ChatInputCommandInteraction.deferReply (/home/container/node_modules/discord.js/src/structures/interfaces/InteractionResponses.js:122:22)
+[10:38:44]     at async Object.execute (file:///home/container/commands/card.js:3225:7)
+[10:38:44]     at async Client.<anonymous> (file:///home/container/index.js:813:11) {
+[10:38:44]   rawError: {
+[10:38:44]     message: 'Interaction has already been acknowledged.',
+[10:38:44]     code: 40060
+[10:38:44]   },
+[10:38:44]   code: 40060,
+[10:38:44]   status: 400,
+[10:38:44]   method: 'POST',
+[10:38:44]   url: 'https://discord.com/api/v10/interactions/1567405215140028566/aW50ZXJhY3Rpb246MTU2NzQwNTIxNTE0MDAyODU2Njo0bHRwN25lZTRZUmE5em5zTDVubkI3dTZYQmVkM1VYRDlzUUVxWmZET1NmVTNGeFFzZGVKMm96ZFhtVHRSNjFDNjlROHVtSXBWWkVERERzM0tkQmRaNEE4UnpPVnBERFlMdDNxV1o4aTdSeWFoNlhCWXpudDl3dGJjN1NtQm1yaw/callback?with_response=false',
+[10:38:44]   requestBody: { files: undefined, json: { type: 5, data: [Object] } }
+[10:38:44] }
+[10:38:44] DiscordAPIError[40060]: Interaction has already been acknowledged.
+[10:38:44]     at handleErrors (/home/container/node_modules/@discordjs/rest/dist/index.js:791:13)
+[10:38:44]     at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+[10:38:44]     at async BurstHandler.runRequest (/home/container/node_modules/@discordjs/rest/dist/index.js:898:23)
+[10:38:44]     at async _REST.request (/home/container/node_modules/@discordjs/rest/dist/index.js:1342:22)
+[10:38:44]     at async ChatInputCommandInteraction.deferReply (/home/container/node_modules/discord.js/src/structures/interfaces/InteractionResponses.js:122:22)
+[10:38:44]     at async Object.execute (file:///home/container/commands/card.js:3225:7)
+[10:38:44]     at async Client.<anonymous> (file:///home/container/index.js:813:11)
