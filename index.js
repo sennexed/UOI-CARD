@@ -3,7 +3,16 @@ import { Client, GatewayIntentBits, REST, Routes, Events } from 'discord.js';
 import http from 'http';
 import fs from 'fs';
 import path from 'path';
-import { cardCommand, getCanvasEngineInfo, loadDatabase, resolveCardBySerial, getGuildCard, getAllGuildCards } from './commands/card.js';
+import {
+  cardCommand,
+  getCanvasEngineInfo,
+  loadDatabase,
+  resolveCardBySerial,
+  getGuildCard,
+  getAllGuildCards,
+  checkAndDispatchCardExpirations,
+  checkAndExpirePendingApplications,
+} from './commands/card.js';
 import {
   syncGuildsMemory,
   recordServer,
@@ -679,39 +688,69 @@ if (!token || token === 'your_bot_token_here' || token.includes('your_token')) {
       console.warn('[UOI Bot] Notice during guild memory sync:', memErr.message);
     }
 
-    // Apply Font 10 (Sinistre Vampyre) with Dark Orange, White & Dark Green Gradient Style across all servers
+    // Apply Font 10 (Sinistre Vampyre) with Dark Orange & Dark Green Gradient Style across all servers
     try {
-      console.log('[UOI Bot] 🎨 Applying Font 10 (Sinistre) with Dark Orange, White & Dark Green Gradient...');
+      console.log('[UOI Bot] 🎨 Applying Font 10 (Sinistre) with Dark Orange & Dark Green Gradient...');
       const guilds = await client.guilds.fetch();
       for (const [guildId, oauthGuild] of guilds) {
         try {
-          // Attempt with 3 colors: Dark Orange, White, Dark Green
+          // 1. Try Discord display name styling (Max 2 colors strictly supported by Discord API)
           await rest.patch(`/guilds/${guildId}/members/@me`, {
             body: {
-              display_name_font_id: 10,        // 10th Font: Sinistre (Vampyre / Gothic)
-              display_name_effect_id: 2,      // Gradient effect
-              display_name_colors: [0xd95700, 0xffffff, 0x0d652d], // Dark Orange (#D95700), White (#FFFFFF), Dark Green (#0D652D)
+              display_name_font_id: 10,
+              display_name_effect_id: 2,
+              display_name_colors: [0xd95700, 0x0d652d], // Dark Orange (#D95700) & Dark Green (#0D652D)
             },
           });
-          console.log(`[UOI Bot] 🎨 Applied Font 10 Tricolor Gradient to: ${oauthGuild.name} (${guildId})`);
-        } catch (firstErr) {
-          // If Discord API strictly restricts gradient array to max 2 items, fall back to Dark Orange & Dark Green
-          try {
-            await rest.patch(`/guilds/${guildId}/members/@me`, {
-              body: {
-                display_name_font_id: 10,
-                display_name_effect_id: 2,
-                display_name_colors: [0xd95700, 0x0d652d], // Dark Orange & Dark Green
-              },
-            });
-            console.log(`[UOI Bot] 🎨 Applied Font 10 Two-Tone Gradient to: ${oauthGuild.name} (${guildId})`);
-          } catch (guildStyleErr) {
-            console.warn(`[UOI Bot] Notice: Could not set name style in guild ${guildId}:`, guildStyleErr.message);
-          }
+          console.log(`[UOI Bot] 🎨 Applied Font 10 Two-Tone Gradient to: ${oauthGuild.name} (${guildId})`);
+        } catch (styleErr) {
+          // Non-fatal if Discord Nitro/permission restriction occurs
         }
+
+        // 2. Also ensure bot's role color is colored Deep Saffron (#D95700) for guaranteed visibility in chat & member list
+        try {
+          const fullGuild = await client.guilds.fetch(guildId);
+          const botMember = fullGuild?.members?.me || await fullGuild?.members?.fetch(client.user.id);
+          if (botMember) {
+            const roleToColor = botMember.roles.cache
+              .filter((r) => r.editable && r.id !== guildId)
+              .sort((a, b) => b.position - a.position)
+              .first();
+            if (roleToColor && roleToColor.color !== 0xd95700) {
+              await roleToColor.setColor(0xd95700);
+              console.log(`[UOI Bot] 🎨 Auto-colored role @${roleToColor.name} to Saffron (#D95700) in ${fullGuild.name}`);
+            }
+          }
+        } catch (_) {}
       }
     } catch (styleErr) {
       console.warn('[UOI Bot] Name styling notice:', styleErr.message);
+    }
+
+    // 4. Proactive 2-Month Card Expiration Sentinel & DM Dispatcher (10, 5, 3, 1 Days Prior)
+    try {
+      console.log('[UOI Bot] ⏳ Starting 2-Month Card Expiration Sentinel...');
+      await checkAndDispatchCardExpirations(client);
+      setInterval(() => {
+        checkAndDispatchCardExpirations(client).catch((err) => {
+          console.warn('[UOI Bot] Error in card expiration sentinel check:', err.message);
+        });
+      }, 30 * 60 * 1000); // Check every 30 minutes
+    } catch (expErr) {
+      console.warn('[UOI Bot] Notice during expiration check:', expErr.message);
+    }
+
+    // 5. Automated 48-Hour Pending Application Expiry Sentinel
+    try {
+      console.log('[UOI Bot] ⏰ Starting 48-Hour Pending Application Expiry Sentinel...');
+      await checkAndExpirePendingApplications(client);
+      setInterval(() => {
+        checkAndExpirePendingApplications(client).catch((err) => {
+          console.warn('[UOI Bot] Error in application expiry check:', err.message);
+        });
+      }, 30 * 60 * 1000); // Check every 30 minutes
+    } catch (appExpErr) {
+      console.warn('[UOI Bot] Notice during application expiry check:', appExpErr.message);
     }
   });
 
@@ -723,17 +762,9 @@ if (!token || token === 'your_bot_token_here' || token.includes('your_token')) {
       autoDetectAndSaveSetup(guild);
       console.log(`[UOI Bot] 🧠 Permanent memory saved for server: ${guild.name} (${guild.id})`);
 
-      // 2. Apply Font 10 styling
+      // 2. Apply Font 10 styling (Max 2 colors)
       const rest = new REST({ version: '10' }).setToken(token);
       try {
-        await rest.patch(`/guilds/${guild.id}/members/@me`, {
-          body: {
-            display_name_font_id: 10,
-            display_name_effect_id: 2, // Gradient
-            display_name_colors: [0xd95700, 0xffffff, 0x0d652d], // Dark Orange, White, Dark Green
-          },
-        });
-      } catch (_) {
         await rest.patch(`/guilds/${guild.id}/members/@me`, {
           body: {
             display_name_font_id: 10,
@@ -741,8 +772,22 @@ if (!token || token === 'your_bot_token_here' || token.includes('your_token')) {
             display_name_colors: [0xd95700, 0x0d652d],
           },
         });
-      }
-      console.log(`[UOI Bot] 🎨 Applied Font 10 Tricolor Gradient to new server: ${guild.name}`);
+        console.log(`[UOI Bot] 🎨 Applied Font 10 Gradient to new server: ${guild.name}`);
+      } catch (_) {}
+
+      // 3. Set bot role color to Saffron
+      try {
+        const botMember = guild.members?.me || await guild.members?.fetch(client.user.id);
+        if (botMember) {
+          const roleToColor = botMember.roles.cache
+            .filter((r) => r.editable && r.id !== guild.id)
+            .sort((a, b) => b.position - a.position)
+            .first();
+          if (roleToColor && roleToColor.color !== 0xd95700) {
+            await roleToColor.setColor(0xd95700);
+          }
+        }
+      } catch (_) {}
     } catch (err) {
       console.warn(`[UOI Bot] Notice in new server handler ${guild.name}:`, err.message);
     }

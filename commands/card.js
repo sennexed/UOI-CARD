@@ -274,21 +274,401 @@ function getImageDimensions(buffer) {
 // ========================================================
 const DATA_DIR = path.join(process.cwd(), 'data');
 const DB_FILE = path.join(DATA_DIR, 'cards.json');
+export const BACKUPS_DIR = path.join(DATA_DIR, 'backups');
 
 let _cachedCardsDb = null;
 let _cardsSaveTimeout = null;
 let _cardsIsDirty = false;
 
-function ensureDirectories() {
+export function ensureDirectories() {
   if (!fs.existsSync(DATA_DIR)) {
     try { fs.mkdirSync(DATA_DIR, { recursive: true }); } catch (_) {}
+  }
+  if (!fs.existsSync(BACKUPS_DIR)) {
+    try { fs.mkdirSync(BACKUPS_DIR, { recursive: true }); } catch (_) {}
   }
   if (!fs.existsSync(TEMPLATES_DIR)) {
     try { fs.mkdirSync(TEMPLATES_DIR, { recursive: true }); } catch (_) {}
   }
 }
 
-function flushCardsDbSync() {
+export function ensureBackupDirectory() {
+  ensureDirectories();
+  if (!fs.existsSync(BACKUPS_DIR)) {
+    try { fs.mkdirSync(BACKUPS_DIR, { recursive: true }); } catch (_) {}
+  }
+}
+
+/**
+ * Saves an immutable, permanent backup snapshot in data/backups/
+ */
+export function savePermanentSnapshot(prefix, name, content) {
+  ensureBackupDirectory();
+  try {
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const safeName = (name || 'data').replace(/[^a-zA-Z0-9._-]/g, '_');
+    const snapshotFileName = `${prefix}_${timestamp}_${safeName}`;
+    const filePath = path.join(BACKUPS_DIR, snapshotFileName);
+    fs.writeFileSync(filePath, content);
+    console.log(`[UOI Bot] 💾 Permanent archive snapshot saved: ${snapshotFileName}`);
+    return snapshotFileName;
+  } catch (err) {
+    console.warn('[UOI Bot] Error saving permanent snapshot:', err.message);
+    return null;
+  }
+}
+
+/**
+ * Computes exact 2-month card expiration date from issue date
+ */
+export function computeCardExpiration(issuedDateInput) {
+  const issued = issuedDateInput ? new Date(issuedDateInput) : new Date();
+  const base = isNaN(issued.getTime()) ? new Date() : issued;
+  const expires = new Date(base.getTime());
+  expires.setMonth(expires.getMonth() + 2);
+  return expires;
+}
+
+/**
+ * Formats a date cleanly in UTC for card display and audit logs
+ */
+export function formatCardDateTime(dateInput) {
+  const d = dateInput instanceof Date ? dateInput : new Date(dateInput);
+  if (isNaN(d.getTime())) return 'N/A';
+  return d.toLocaleDateString('en-GB', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    timeZone: 'UTC',
+  }) + ' UTC';
+}
+
+/**
+ * Standard Application Expiry Policy:
+ * Card applications automatically expire after 48 hours to prevent buggy, stuck, or hanging requests.
+ */
+export const DEFAULT_APPLICATION_EXPIRY_HOURS = 48;
+
+/**
+ * Returns application expiry duration in milliseconds (defaults to 48 hours)
+ */
+export function getApplicationExpiryMs(guildConfig = null) {
+  const hours = (guildConfig && typeof guildConfig.applicationExpiryHours === 'number' && guildConfig.applicationExpiryHours > 0)
+    ? guildConfig.applicationExpiryHours
+    : DEFAULT_APPLICATION_EXPIRY_HOURS;
+  return hours * 60 * 60 * 1000;
+}
+
+/**
+ * Checks whether a card application has expired past its review window (e.g. 48 hours).
+ */
+export function isApplicationExpired(req, guildConfig = null) {
+  if (!req) return false;
+  if (req.status === 'EXPIRED') return true;
+  if (req.status !== 'PENDING') return false;
+
+  const now = Date.now();
+  if (req.expiresAt) {
+    const expMs = new Date(req.expiresAt).getTime();
+    if (!isNaN(expMs) && now >= expMs) return true;
+  }
+
+  if (req.submittedAt) {
+    const subMs = new Date(req.submittedAt).getTime();
+    const timeoutMs = getApplicationExpiryMs(guildConfig);
+    if (!isNaN(subMs) && (now - subMs >= timeoutMs)) return true;
+  }
+
+  return false;
+}
+
+/**
+ * Background sentinel to sweep and expire pending card applications that have exceeded their review window.
+ * Updates review messages to disabled state and informs applicants via DM so they are not blocked.
+ */
+export async function checkAndExpirePendingApplications(client) {
+  if (!client || !client.isReady()) return;
+  const db = loadDatabase();
+  if (!db.pendingRequests) return;
+
+  const now = Date.now();
+  let dbDirty = false;
+
+  for (const [requestId, req] of Object.entries(db.pendingRequests)) {
+    if (!req || req.status !== 'PENDING') continue;
+
+    const guildConfig = db.guilds?.[req.guildId];
+    if (isApplicationExpired(req, guildConfig)) {
+      req.status = 'EXPIRED';
+      req.expiredAt = new Date().toISOString();
+      dbDirty = true;
+      console.log(`[UOI Bot] ⏰ Auto-expired stale card application: ${requestId} (${req.fullName})`);
+
+      // 1. Update review message in staff channel to disabled expired state
+      if (req.staffChannelId && req.staffMessageId) {
+        try {
+          const staffChannel = await client.channels.fetch(req.staffChannelId).catch(() => null);
+          if (staffChannel && staffChannel.isTextBased()) {
+            const staffMsg = await staffChannel.messages.fetch(req.staffMessageId).catch(() => null);
+            if (staffMsg) {
+              const disabledRow = new ActionRowBuilder().addComponents(
+                new ButtonBuilder()
+                  .setCustomId('card_expired_btn')
+                  .setLabel('Application Expired (48h Timeout)')
+                  .setStyle(ButtonStyle.Secondary)
+                  .setDisabled(true)
+                  .setEmoji('⏰')
+              );
+
+              const originalEmbed = staffMsg.embeds[0];
+              const updatedStaffEmbed = originalEmbed
+                ? EmbedBuilder.from(originalEmbed)
+                    .setColor(0x64748b)
+                    .setTitle(`⏰ Citizen Card Application EXPIRED: ${req.fullName}`)
+                    .setDescription(
+                      `⚠️ **APPLICATION EXPIRED**: This application was not reviewed within the 48-hour review window and has expired.\n` +
+                      `The buttons have been deactivated, and the citizen has been cleared to submit a fresh application.`
+                    )
+                : new EmbedBuilder()
+                    .setColor(0x64748b)
+                    .setTitle(`⏰ Citizen Card Application EXPIRED: ${req.fullName}`);
+
+              await staffMsg.edit({ embeds: [updatedStaffEmbed], components: [disabledRow] }).catch(() => {});
+            }
+          }
+        } catch (_) {}
+      }
+
+      // 2. Proactively DM the applicant informing them their application expired so they can re-apply freely
+      if (req.targetUser?.id) {
+        try {
+          const user = await client.users.fetch(req.targetUser.id).catch(() => null);
+          if (user) {
+            const serverName = (req.guildId && db.guilds?.[req.guildId]?.name) || 'Union of Indians';
+            const submittedUnix = Math.floor(new Date(req.submittedAt || now).getTime() / 1000);
+            const dmEmbed = new EmbedBuilder()
+              .setTitle('⏰ Citizen Card Application Expired')
+              .setColor(0xf59e0b)
+              .setDescription(
+                `Hello **${req.fullName}**, your citizen card application for **${serverName}** has reached its **48-hour review timeout** and has expired.\n\n` +
+                `Applications automatically expire to prevent requests from hanging or bugging when staff is busy. Your account is **unlocked and cleared** to submit a fresh application anytime!`
+              )
+              .addFields(
+                { name: 'Request ID', value: `\`${requestId}\``, inline: true },
+                { name: '🏛️ Server', value: serverName, inline: true },
+                { name: '📅 Submitted At', value: `<t:${submittedUnix}:d> (<t:${submittedUnix}:R>)`, inline: true },
+                {
+                  name: '👉 How to Reapply',
+                  value: `Run \`/card apply\` or \`/card generate\` in **${serverName}** to submit an updated application.`,
+                  inline: false,
+                }
+              )
+              .setFooter({ text: 'Union of Indians Registry • Application Expiry Sentinel' })
+              .setTimestamp();
+
+            await user.send({ embeds: [dmEmbed] }).catch(() => {});
+          }
+        } catch (_) {}
+      }
+    }
+  }
+
+  if (dbDirty) {
+    saveDatabase(db);
+    flushCardsDbSync();
+  }
+}
+
+/**
+ * Stamps date, time, 2-month expiry, and reminder flags on a card record.
+ * Handles both marked and unmarked formats.
+ */
+export function stampCardTimestamps(card, { forceNow = false } = {}) {
+  const now = new Date();
+  let issuedDate;
+  let wasUnmarked = false;
+
+  if (forceNow || !card.issuedAt || isNaN(new Date(card.issuedAt).getTime())) {
+    issuedDate = now;
+    wasUnmarked = true;
+  } else {
+    issuedDate = new Date(card.issuedAt);
+  }
+
+  const expiresDate = card.expiresAt && !isNaN(new Date(card.expiresAt).getTime())
+    ? new Date(card.expiresAt)
+    : computeCardExpiration(issuedDate);
+
+  card.issuedAt = issuedDate.toISOString();
+  card.issuedAtFormatted = formatCardDateTime(issuedDate);
+  card.expiresAt = expiresDate.toISOString();
+  card.expiresAtFormatted = formatCardDateTime(expiresDate);
+  card.expiresAtTimestamp = Math.floor(expiresDate.getTime() / 1000);
+
+  // Reminders tracker for all four threshold DMs (10, 5, 3, 1 days prior) + expired notice
+  card.remindersSent = card.remindersSent || {
+    d10: false,
+    d5: false,
+    d3: false,
+    d1: false,
+    expired: false,
+  };
+
+  // Status check: if expired past 2 months
+  if (Date.now() >= expiresDate.getTime() && card.status === 'ACTIVE') {
+    card.status = 'EXPIRED';
+  } else if (!card.status) {
+    card.status = 'ACTIVE';
+  }
+
+  return { card, wasUnmarked };
+}
+
+/**
+ * Resilient card file parser: parses JSON arrays, single objects, wrapped objects,
+ * or CSV spreadsheets. Automatically detects and accepts unmarked formats.
+ */
+export function parseCardFile(buffer, filename = 'cards.json') {
+  if (!buffer || buffer.length === 0) {
+    return { cards: [], isUnmarkedFormat: false, error: 'Empty file buffer' };
+  }
+
+  const rawStr = buffer.toString('utf8').trim();
+  const lowerName = filename.toLowerCase();
+  const cards = [];
+  let isUnmarkedFormat = false;
+
+  if (lowerName.endsWith('.csv') || (!rawStr.startsWith('{') && !rawStr.startsWith('['))) {
+    // Parse CSV
+    const lines = rawStr.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+    if (lines.length < 2) {
+      return { cards: [], isUnmarkedFormat: false, error: 'CSV file must have a header row and at least one data row' };
+    }
+
+    function parseCsvLine(line) {
+      const result = [];
+      let cur = '';
+      let inQuotes = false;
+      for (let i = 0; i < line.length; i++) {
+        const char = line[i];
+        if (char === '"' || char === "'") {
+          if (inQuotes && line[i + 1] === char) {
+            cur += char;
+            i++;
+          } else {
+            inQuotes = !inQuotes;
+          }
+        } else if (char === ',' && !inQuotes) {
+          result.push(cur.trim());
+          cur = '';
+        } else {
+          cur += char;
+        }
+      }
+      result.push(cur.trim());
+      return result;
+    }
+
+    const headers = parseCsvLine(lines[0]).map((h) => h.toLowerCase().replace(/[^a-z0-9]/g, ''));
+    const hasDateField = headers.some((h) => h.includes('issued') || h.includes('date') || h.includes('created') || h.includes('expires'));
+    if (!hasDateField) {
+      isUnmarkedFormat = true;
+    }
+
+    for (let i = 1; i < lines.length; i++) {
+      const cols = parseCsvLine(lines[i]);
+      if (cols.length === 0 || (cols.length === 1 && !cols[0])) continue;
+
+      const row = {};
+      headers.forEach((h, idx) => {
+        row[h] = cols[idx] !== undefined ? cols[idx] : '';
+      });
+
+      const serialId = row.serialid || row.serial || row.id || row.cardid || null;
+      const fullName = row.fullname || row.name || row.citizenname || row.citizen || 'Unknown Citizen';
+      const gender = row.gender || row.sex || 'Unspecified';
+      const robloxUsername = row.robloxusername || row.roblox || row.robloxuser || '';
+      const robloxUserId = row.robloxuid || row.robloxid || row.uid || '';
+      const assignedRank = row.rank || row.assignedrank || row.role || 'CITIZEN';
+      const division = row.division || row.dept || row.department || 'Civilian Directorate';
+      const clearanceLevel = row.clearancelevel || row.clearance || computeClearanceLevel(assignedRank, division);
+      const status = (row.status || 'ACTIVE').toUpperCase();
+      const discordId = row.discordid || row.userid || row.discorduid || '';
+      const discordTag = row.discordtag || row.tag || fullName;
+      const rawIssuedAt = row.issuedat || row.issueddate || row.issued || row.createdat || row.date || null;
+      const rawExpiresAt = row.expiresat || row.expiresdate || row.expires || row.validthru || null;
+
+      cards.push({
+        serialId,
+        fullName,
+        gender,
+        robloxUsername,
+        robloxUserId,
+        assignedRank,
+        division,
+        clearanceLevel,
+        status,
+        discordId,
+        discordTag,
+        issuedAt: rawIssuedAt,
+        expiresAt: rawExpiresAt,
+      });
+    }
+  } else {
+    // Parse JSON
+    let parsed;
+    try {
+      parsed = JSON.parse(rawStr);
+    } catch (jErr) {
+      return { cards: [], isUnmarkedFormat: false, error: `Invalid JSON format: ${jErr.message}` };
+    }
+
+    let cardCandidates = [];
+    if (Array.isArray(parsed)) {
+      cardCandidates = parsed;
+    } else if (parsed && typeof parsed === 'object') {
+      if (Array.isArray(parsed.cards)) {
+        cardCandidates = parsed.cards;
+      } else if (parsed.cards && typeof parsed.cards === 'object') {
+        cardCandidates = Object.values(parsed.cards);
+      } else if (parsed.serverCards && typeof parsed.serverCards === 'object') {
+        for (const guildMap of Object.values(parsed.serverCards)) {
+          if (guildMap && typeof guildMap === 'object') {
+            cardCandidates.push(...Object.values(guildMap));
+          }
+        }
+      } else if (parsed.fullName || parsed.serialId || parsed.assignedRank) {
+        cardCandidates = [parsed];
+      } else {
+        const vals = Object.values(parsed);
+        if (vals.length > 0 && typeof vals[0] === 'object' && (vals[0].fullName || vals[0].serialId)) {
+          cardCandidates = vals;
+        }
+      }
+    }
+
+    for (const c of cardCandidates) {
+      if (!c || typeof c !== 'object') continue;
+      cards.push({ ...c });
+    }
+  }
+
+  let unmarkedCount = 0;
+  for (const c of cards) {
+    if (!c.issuedAt || isNaN(new Date(c.issuedAt).getTime())) {
+      unmarkedCount++;
+    }
+  }
+  if (unmarkedCount > 0) {
+    isUnmarkedFormat = true;
+  }
+
+  return { cards, isUnmarkedFormat, total: cards.length, unmarkedCount };
+}
+
+export function flushCardsDbSync() {
   if (!_cachedCardsDb || !_cardsIsDirty) return;
   ensureDirectories();
   const tmpPath = `${DB_FILE}.tmp.${Date.now()}.${Math.random().toString(36).slice(2, 6)}`;
@@ -853,8 +1233,10 @@ export async function renderCardImage({
           : 'CIVILIAN DIRECTORATE'
       )).toUpperCase();
       const issueDate = issuedAt ? new Date(issuedAt) : new Date();
+      const expiresDate = computeCardExpiration(issueDate);
+      const isCardExpired = Date.now() >= expiresDate.getTime();
       const formattedIssue = issueDate.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }).toUpperCase();
-      const formattedExpiry = 'VALID THRU: ' + new Date(issueDate.getTime() + 2 * 365 * 24 * 3600 * 1000).toLocaleDateString('en-GB', { month: 'short', year: 'numeric' }).toUpperCase();
+      const formattedExpiry = 'VALID THRU: ' + expiresDate.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }).toUpperCase();
 
       // Render Clearance, Division & Issue Dates on the right-hand identity panel
       ctx.save();
@@ -866,9 +1248,15 @@ export async function renderCardImage({
       ctx.font = 'bold 12px "Liberation Sans", -apple-system, sans-serif';
       ctx.fillText(`DIVISION: ${effectiveDivision}`, fieldX + 18, 772);
 
-      ctx.fillStyle = '#94A3B8';
-      ctx.font = 'bold 12px "Nimbus Mono PS", monospace';
-      ctx.fillText(`ISSUED: ${formattedIssue} • ${formattedExpiry}`, fieldX + 18, 792);
+      if (isCardExpired) {
+        ctx.fillStyle = '#EF4444';
+        ctx.font = 'bold 12px "Nimbus Mono PS", monospace';
+        ctx.fillText(`ISSUED: ${formattedIssue} • ⚠️ EXPIRED (${formattedExpiry})`, fieldX + 18, 792);
+      } else {
+        ctx.fillStyle = '#94A3B8';
+        ctx.font = 'bold 12px "Nimbus Mono PS", monospace';
+        ctx.fillText(`ISSUED: ${formattedIssue} • ${formattedExpiry}`, fieldX + 18, 792);
+      }
       ctx.restore();
 
       // 7. REAL HIGH-DENSITY VERIFICATION QR CODE (Bottom-Right Panel)
@@ -1197,6 +1585,165 @@ export async function checkIsStaffOrAdmin(interaction, guildConfig) {
   return Boolean(hasAdmin || hasManage || hasStaffRole);
 }
 
+/**
+ * Determines if the interacting user is strictly the Server Owner or an Administrator.
+ * Used to safeguard card export, import, and permanent database operations.
+ */
+export async function checkIsOwnerOrAdmin(interaction) {
+  if (await checkIsOwner(interaction)) return true;
+  const hasAdmin =
+    interaction.memberPermissions?.has(PermissionFlagsBits.Administrator) ||
+    interaction.member?.permissions?.has(PermissionFlagsBits.Administrator);
+  return Boolean(hasAdmin);
+}
+
+/**
+ * Proactively checks all cards across all servers for 2-month expiration.
+ * Dispatches automated DMs to cardholders at 10, 5, 3, and 1 days prior,
+ * as well as a final expiration notice upon expiration (0 days).
+ */
+export async function checkAndDispatchCardExpirations(client) {
+  if (!client || !client.isReady()) return;
+  const db = loadDatabase();
+  const allCards = getAllGuildCards(db);
+  const now = Date.now();
+  let dbDirty = false;
+
+  for (const card of allCards) {
+    if (!card || !card.discordId) continue;
+    if (card.status === 'REVOKED') continue;
+
+    // Ensure card has timestamps
+    if (!card.issuedAt || !card.expiresAt) {
+      stampCardTimestamps(card);
+      dbDirty = true;
+    }
+
+    const expiresTime = new Date(card.expiresAt).getTime();
+    if (isNaN(expiresTime)) continue;
+
+    const diffMs = expiresTime - now;
+    const diffDays = diffMs / (1000 * 60 * 60 * 24);
+
+    card.remindersSent = card.remindersSent || {
+      d10: false,
+      d5: false,
+      d3: false,
+      d1: false,
+      expired: false,
+    };
+
+    let reminderType = null;
+    let daysLabel = '';
+    let alertColor = 0xf59e0b;
+
+    if (diffDays <= 0 && !card.remindersSent.expired) {
+      reminderType = 'expired';
+      daysLabel = '0 days (EXPIRED)';
+      alertColor = 0xdc2626; // Dark Red
+      card.remindersSent.expired = true;
+      card.remindersSent.d1 = true;
+      card.remindersSent.d3 = true;
+      card.remindersSent.d5 = true;
+      card.remindersSent.d10 = true;
+      card.status = 'EXPIRED';
+      dbDirty = true;
+    } else if (diffDays <= 1 && diffDays > 0 && !card.remindersSent.d1) {
+      reminderType = 'd1';
+      daysLabel = '1 day (24 Hours Remaining)';
+      alertColor = 0xef4444; // Red
+      card.remindersSent.d1 = true;
+      card.remindersSent.d3 = true;
+      card.remindersSent.d5 = true;
+      card.remindersSent.d10 = true;
+      dbDirty = true;
+    } else if (diffDays <= 3 && diffDays > 1 && !card.remindersSent.d3) {
+      reminderType = 'd3';
+      daysLabel = '3 days remaining';
+      alertColor = 0xf97316; // Orange
+      card.remindersSent.d3 = true;
+      card.remindersSent.d5 = true;
+      card.remindersSent.d10 = true;
+      dbDirty = true;
+    } else if (diffDays <= 5 && diffDays > 3 && !card.remindersSent.d5) {
+      reminderType = 'd5';
+      daysLabel = '5 days remaining';
+      alertColor = 0xf59e0b; // Amber / Gold
+      card.remindersSent.d5 = true;
+      card.remindersSent.d10 = true;
+      dbDirty = true;
+    } else if (diffDays <= 10 && diffDays > 5 && !card.remindersSent.d10) {
+      reminderType = 'd10';
+      daysLabel = '10 days remaining';
+      alertColor = 0xeab308; // Yellow-Gold
+      card.remindersSent.d10 = true;
+      dbDirty = true;
+    }
+
+    if (reminderType) {
+      try {
+        let user = null;
+        try {
+          user = await client.users.fetch(card.discordId);
+        } catch (_) {}
+
+        if (user) {
+          const serverName = card.guildId && db.guilds?.[card.guildId]?.name
+            ? db.guilds[card.guildId].name
+            : 'Union of Indians';
+          const expiresUnix = Math.floor(expiresTime / 1000);
+          const issuedUnix = Math.floor(new Date(card.issuedAt).getTime() / 1000);
+
+          const isExp = reminderType === 'expired';
+          const title = isExp
+            ? `🔴 UOI Citizen Card Expired: ${card.fullName}`
+            : `⚠️ UOI Citizen Card Expiration Notice (${daysLabel}): ${card.fullName}`;
+
+          const desc = isExp
+            ? `Your Union of Indians identification card registered in **${serverName}** has reached its **2-month expiration date** and is now **EXPIRED**.\n\n` +
+              `To maintain verified citizen privileges, access rights, and server credentials, please reapply or refresh your card immediately.`
+            : `Your Union of Indians identification card registered in **${serverName}** is set to expire in **${daysLabel}**.\n\n` +
+              `Under Union security protocol, all citizen cards have a **2-month validity window**. Please review your card details below and prepare to refresh or reapply.`;
+
+          const dmEmbed = new EmbedBuilder()
+            .setTitle(title)
+            .setColor(alertColor)
+            .setDescription(desc)
+            .addFields(
+              { name: '🆔 Serial ID', value: `\`${card.serialId}\``, inline: true },
+              { name: '👤 Citizen Name', value: card.fullName || 'Citizen', inline: true },
+              { name: '🏛️ Server Registry', value: serverName, inline: true },
+              { name: '🎖️ Assigned Rank', value: `**${card.assignedRank || 'Citizen'}**`, inline: true },
+              { name: '📅 Issued At', value: `<t:${issuedUnix}:d> (<t:${issuedUnix}:R>)`, inline: true },
+              { name: '⏳ Expiration Date', value: `<t:${expiresUnix}:F> (<t:${expiresUnix}:R>)`, inline: true },
+              {
+                name: '🔄 How to Renew / Reapply',
+                value:
+                  `• Run \`/card refresh\` in **${serverName}** to instantly sync your role & avatar.\n` +
+                  `• Or run \`/card apply\` to submit a renewal application to staff.\n` +
+                  `• Run \`/card show\` anytime to view your current credential status.`,
+                inline: false,
+              }
+            )
+            .setFooter({ text: `UOI Automated Expiry Sentinel • Notice: ${daysLabel}` })
+            .setTimestamp();
+
+          await user.send({ embeds: [dmEmbed] }).catch((dmErr) => {
+            console.warn(`[UOI Bot] Could not send expiration DM to ${card.discordId}:`, dmErr.message);
+          });
+          console.log(`[UOI Bot] 📬 Dispatched ${reminderType} expiration notice DM to <@${card.discordId}> (Serial: ${card.serialId})`);
+        }
+      } catch (dmErr) {
+        console.warn(`[UOI Bot] Error dispatching expiration DM to ${card.discordId}:`, dmErr.message);
+      }
+    }
+  }
+
+  if (dbDirty) {
+    saveDatabase(db);
+  }
+}
+
 export const cardCommand = {
 
   data: new SlashCommandBuilder()
@@ -1258,6 +1805,14 @@ export const cardCommand = {
             .setDescription('RoVer API Key for instant 100% cryptographic Roblox verification (Optional)')
             .setRequired(false)
         )
+        .addIntegerOption((opt) =>
+          opt
+            .setName('application_expiry_hours')
+            .setDescription('Hours before an unreviewed card application expires (Default: 48)')
+            .setMinValue(1)
+            .setMaxValue(336)
+            .setRequired(false)
+        )
     )
     // 1. /card generate (Unified: Opens interactive modal if empty, or accepts direct slash options)
     .addSubcommand((sub) =>
@@ -1292,18 +1847,59 @@ export const cardCommand = {
         .setName('refresh')
         .setDescription('Refresh your active card with your latest Roblox avatar & Discord server role')
     )
-    // 3. /card export (Admins / Officers Bulk Registry Export)
+    // 3. /card export (Download Card Files - Owner / Admin Only)
     .addSubcommand((sub) =>
       sub
         .setName('export')
-        .setDescription('Export server citizen cards database to CSV/JSON file (Admins & Officers Only)')
+        .setDescription('Download card database files with timestamps and 2-month expiry (Owner / Admin Only)')
         .addStringOption((opt) =>
           opt
             .setName('format')
-            .setDescription('Export format (CSV or JSON, default: CSV)')
+            .setDescription('File format to download (JSON database dump or CSV spreadsheet)')
             .addChoices(
-              { name: '📊 CSV Spreadsheet (Excel / Google Sheets)', value: 'csv' },
-              { name: '📦 JSON Database Dump', value: 'json' }
+              { name: '📦 JSON Database File (Complete Data & Metadata)', value: 'json' },
+              { name: '📊 CSV Spreadsheet (Excel / Google Sheets Compatible)', value: 'csv' }
+            )
+            .setRequired(false)
+        )
+        .addStringOption((opt) =>
+          opt
+            .setName('scope')
+            .setDescription('Scope of cards to export (This server only or network-wide)')
+            .addChoices(
+              { name: '🏛️ This Server Only [Default]', value: 'this_server' },
+              { name: '🌐 All Servers (Network-Wide Central Registry)', value: 'all_servers' }
+            )
+            .setRequired(false)
+        )
+    )
+    // 3b. /card import (Upload Card Files - Multiple Files & Unmarked Format Support)
+    .addSubcommand((sub) =>
+      sub
+        .setName('import')
+        .setDescription('Upload card files (multiple files, auto-marks unmarked format) (Owner / Admin Only)')
+        .addAttachmentOption((opt) =>
+          opt.setName('file').setDescription('Primary card file to upload (.json or .csv)').setRequired(true)
+        )
+        .addAttachmentOption((opt) =>
+          opt.setName('file2').setDescription('Second card file to upload (Optional)').setRequired(false)
+        )
+        .addAttachmentOption((opt) =>
+          opt.setName('file3').setDescription('Third card file to upload (Optional)').setRequired(false)
+        )
+        .addAttachmentOption((opt) =>
+          opt.setName('file4').setDescription('Fourth card file to upload (Optional)').setRequired(false)
+        )
+        .addAttachmentOption((opt) =>
+          opt.setName('file5').setDescription('Fifth card file to upload (Optional)').setRequired(false)
+        )
+        .addStringOption((opt) =>
+          opt
+            .setName('mode')
+            .setDescription('Import mode (Merge: add/update cards, Replace: overwrite this server cards)')
+            .addChoices(
+              { name: '🔄 Merge (Add new & update existing cards) [Default]', value: 'merge' },
+              { name: '⚠️ Replace (Clear and replace cards for this server)', value: 'replace' }
             )
             .setRequired(false)
         )
@@ -1526,6 +2122,7 @@ export const cardCommand = {
       const autoNickname = interaction.options.getBoolean('auto_nickname') ?? true;
       const bloxlinkApiKey = interaction.options.getString('bloxlink_api_key');
       const roverApiKey = interaction.options.getString('rover_api_key');
+      const applicationExpiryHours = interaction.options.getInteger('application_expiry_hours') || db.guilds?.[guildId]?.applicationExpiryHours || 48;
 
       const db = loadDatabase();
       db.guilds = db.guilds || {};
@@ -1544,6 +2141,7 @@ export const cardCommand = {
         auditChannelName: auditChannel ? auditChannel.name : (db.guilds[guildId]?.auditChannelName || null),
         autoStaffRoleDetected: !staffRole && !!autoStaffRole,
         autoNickname,
+        applicationExpiryHours,
         bloxlinkApiKey: bloxlinkApiKey && !bloxlinkApiKey.includes('http') && bloxlinkApiKey.trim().length >= 8 ? bloxlinkApiKey.trim() : (db.guilds[guildId]?.bloxlinkApiKey || null),
         roverApiKey: roverApiKey && !roverApiKey.includes('http') && roverApiKey.trim().length >= 8 ? roverApiKey.trim() : (db.guilds[guildId]?.roverApiKey || null),
         setupAt: new Date().toISOString(),
@@ -1583,6 +2181,11 @@ export const cardCommand = {
           {
             name: '🏷️ Auto-Nicknaming',
             value: autoNickname ? '✅ Enabled (`Name [Serial]`)' : '❌ Disabled',
+            inline: true,
+          },
+          {
+            name: '⏳ Application Review Timeout',
+            value: `⏱️ **${applicationExpiryHours} Hours** *(Stale requests auto-expire to prevent stuck applications)*`,
             inline: true,
           },
           {
@@ -2118,10 +2721,22 @@ export const cardCommand = {
       const fileName = `${card.serialId}.png`;
       const files = [];
 
+      // Compute 2-Month Expiration & Status
+      const issuedDate = card.issuedAt ? new Date(card.issuedAt) : new Date();
+      const expiresDate = card.expiresAt ? new Date(card.expiresAt) : computeCardExpiration(issuedDate);
+      const isExpired = Date.now() >= expiresDate.getTime() || card.status === 'EXPIRED';
+      const expiresUnix = Math.floor(expiresDate.getTime() / 1000);
+      const issuedUnix = Math.floor(issuedDate.getTime() / 1000);
+      const daysLeft = Math.max(0, Math.ceil((expiresDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24)));
+
       const embed = new EmbedBuilder()
         .setTitle(`🛡️ UOI Citizen ID Card: ${card.fullName}`)
-        .setColor(0x10b981)
-        .setDescription(`Official identity credential retrieved from registry for <@${card.discordId}>`)
+        .setColor(isExpired ? 0xef4444 : 0x10b981)
+        .setDescription(
+          isExpired
+            ? `⚠️ **CARD EXPIRED:** This credential exceeded its **2-month validity window** and has expired. Reapply with \`/card apply\` or refresh with \`/card refresh\`.`
+            : `Official identity credential retrieved from registry for <@${card.discordId}>`
+        )
         .addFields(
           { name: 'Card Serial ID', value: `\`${card.serialId}\``, inline: true },
           { name: 'Citizen', value: `<@${card.discordId}>`, inline: true },
@@ -2142,11 +2757,22 @@ export const cardCommand = {
               : `🏛️ **Standard Registry**\n*${serverName}*`,
             inline: true,
           },
-          { name: 'Registry Status', value: '🟢 ACTIVE & VERIFIED', inline: true },
           {
-            name: 'Issued Date',
-            value: card.issuedAt ? `<t:${Math.floor(new Date(card.issuedAt).getTime() / 1000)}:f>` : 'Recent',
+            name: 'Registry Status',
+            value: isExpired ? '🔴 **EXPIRED (2-Month Limit)**' : '🟢 **ACTIVE & VERIFIED**',
             inline: true,
+          },
+          {
+            name: '📅 Issued At',
+            value: `<t:${issuedUnix}:d> (<t:${issuedUnix}:R>)`,
+            inline: true,
+          },
+          {
+            name: isExpired ? '⚠️ Expired On' : '⏳ 2-Month Expiry',
+            value: isExpired
+              ? `**Expired** <t:${expiresUnix}:R>\nRun \`/card refresh\` or \`/card apply\` to renew`
+              : `<t:${expiresUnix}:f>\n*(**${daysLeft} days remaining** • <t:${expiresUnix}:R>)*`,
+            inline: false,
           }
         );
 
@@ -2286,25 +2912,34 @@ export const cardCommand = {
         (r) => r.status === 'PENDING' && r.guildId === guildId && r.targetUser?.id === targetUser.id
       );
       if (existingPending) {
-        const embed = new EmbedBuilder()
-          .setTitle('⏳ Card Request Already Pending Review')
-          .setColor(0xf59e0b)
-          .setDescription(
-            `**<@${targetUser.id}> already has an active card request awaiting staff review!**\n` +
-            `Please wait for staff to review the current application in <#${guildConfig.staffChannelId}>.`
-          )
-          .addFields(
-            { name: 'Request ID', value: `\`${existingPending.id}\``, inline: true },
-            {
-              name: 'Submitted At',
-              value: `<t:${Math.floor(new Date(existingPending.submittedAt).getTime() / 1000)}:R>`,
-              inline: true,
-            },
-            { name: 'Status', value: '🟡 Awaiting Officer Approval', inline: true }
-          )
-          .setFooter({ text: 'Union of Indians Staff Review Queue' })
-          .setTimestamp();
-        return interaction.editReply({ embeds: [embed] });
+        if (isApplicationExpired(existingPending, guildConfig)) {
+          existingPending.status = 'EXPIRED';
+          existingPending.expiredAt = new Date().toISOString();
+          saveDatabase(db);
+          console.log(`[UOI Bot] ⏰ Auto-expired stale pending request ${existingPending.id} for <@${targetUser.id}> on re-apply.`);
+        } else {
+          const expiresAtUnix = existingPending.expiresAtTimestamp || (existingPending.expiresAt ? Math.floor(new Date(existingPending.expiresAt).getTime() / 1000) : null);
+          const embed = new EmbedBuilder()
+            .setTitle('⏳ Card Request Already Pending Review')
+            .setColor(0xf59e0b)
+            .setDescription(
+              `**<@${targetUser.id}> already has an active card request awaiting staff review!**\n` +
+              `Please wait for staff to review the current application in <#${guildConfig.staffChannelId}>.`
+            )
+            .addFields(
+              { name: 'Request ID', value: `\`${existingPending.id}\``, inline: true },
+              {
+                name: 'Submitted At',
+                value: `<t:${Math.floor(new Date(existingPending.submittedAt).getTime() / 1000)}:R>`,
+                inline: true,
+              },
+              { name: 'Status', value: '🟡 Awaiting Officer Approval', inline: true },
+              ...(expiresAtUnix ? [{ name: '⏳ Expiry Countdown', value: `<t:${expiresAtUnix}:R> (<t:${expiresAtUnix}:f>)`, inline: true }] : [])
+            )
+            .setFooter({ text: 'Union of Indians Staff Review Queue' })
+            .setTimestamp();
+          return interaction.editReply({ embeds: [embed] });
+        }
       }
 
 // targetMember already resolved and roles auto-scanned above
@@ -2350,6 +2985,12 @@ export const cardCommand = {
 
       const requestId = `REQ-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
 
+      // Calculate application expiration window (e.g. 48 hours)
+      const appExpiryMs = getApplicationExpiryMs(guildConfig);
+      const appExpiresAtDate = new Date(Date.now() + appExpiryMs);
+      const appExpiresAt = appExpiresAtDate.toISOString();
+      const appExpiresAtTimestamp = Math.floor(appExpiresAtDate.getTime() / 1000);
+
       // Save pending request to database
       db.pendingRequests = db.pendingRequests || {};
       const requestRecord = {
@@ -2378,6 +3019,8 @@ export const cardCommand = {
         robloxDetectionConfidence: robloxInfo.confidence,
         robloxHasVerifiedBadge: robloxInfo.hasVerifiedBadge,
         submittedAt: new Date().toISOString(),
+        expiresAt: appExpiresAt,
+        expiresAtTimestamp: appExpiresAtTimestamp,
         status: 'PENDING',
         declineReason: null,
         reviewedBy: null,
@@ -2425,7 +3068,8 @@ export const cardCommand = {
                 inline: true,
               },
               { name: 'Request ID', value: `\`${requestId}\``, inline: true },
-              { name: 'Submitted At', value: `<t:${Math.floor(Date.now() / 1000)}:R>`, inline: true }
+              { name: 'Submitted At', value: `<t:${Math.floor(Date.now() / 1000)}:R>`, inline: true },
+              { name: '⏳ Application Expiry', value: `<t:${appExpiresAtTimestamp}:R> (<t:${appExpiresAtTimestamp}:f>)`, inline: true }
             )
             .setFooter({ text: `UOI Staff Review Queue • Request ${requestId}` })
             .setTimestamp();
@@ -2490,11 +3134,17 @@ export const cardCommand = {
             inline: true,
           },
           {
+            name: '⏳ Review Timeout Window',
+            value: `<t:${appExpiresAtTimestamp}:R> (Expires if unreviewed)`,
+            inline: true,
+          },
+          {
             name: '⏱️ What happens next?',
             value:
               '• Union officers will inspect your Roblox account and information in staff chat.\n' +
               '• When **Accepted**, your official card is rendered, delivered, and your nickname updated.\n' +
-              '• If **Declined**, staff will provide a specific reason and you will receive a notification.',
+              '• If **Declined**, staff will provide a specific reason and you will receive a notification.\n' +
+              '• If left unreviewed, the request auto-expires after the timeout window so you are never stuck!',
           }
         )
         .setFooter({ text: 'Union of Indians Central Registry • Verification Queue' })
@@ -2602,39 +3252,90 @@ export const cardCommand = {
     }
 
     // ==========================================
-    // COMMAND: /card export (Admins / Officers Bulk Registry Export)
+    // COMMAND: /card export (Download Card Files - Owner & Admin Only)
     // ==========================================
     if (sub === 'export') {
       await interaction.deferReply({ ephemeral: true });
-      const hasPerm = await checkIsStaffOrAdmin(interaction, guildConfig);
+      const hasPerm = await checkIsOwnerOrAdmin(interaction);
       if (!hasPerm) {
         return interaction.editReply({
-          content: '❌ **Permission Denied:** Only administrators and authorized officers can export the server citizenship database.',
+          content: '❌ **Permission Denied:** Downloading and exporting card files is strictly restricted to the **Server Owner** or members with the **Administrator** permission.',
         });
       }
 
-      const format = interaction.options.getString('format') || 'csv';
+      const format = interaction.options.getString('format') || 'json';
+      const scope = interaction.options.getString('scope') || 'this_server';
       const db = loadDatabase();
-      const allCards = Object.values(db.cards || {});
-      const serverCards = guildId ? allCards.filter(c => c.guildId === guildId || !c.guildId) : allCards;
+      const allCards = getAllGuildCards(db);
 
-      if (serverCards.length === 0) {
+      const targetCards = scope === 'all_servers'
+        ? allCards
+        : (guildId ? allCards.filter((c) => c.guildId === guildId || !c.guildId) : allCards);
+
+      if (targetCards.length === 0) {
         return interaction.editReply({
-          content: '📋 **No Citizen Cards Found:** No active cards are currently registered for this server.',
+          content: `📋 **No Citizen Cards Found:** No active card records are currently registered for ${scope === 'all_servers' ? 'the entire network' : 'this server'}.`,
         });
       }
+
+      // Ensure every card has marked date, time, 2-month expiry, and days remaining
+      const now = Date.now();
+      const enrichedCards = targetCards.map((c) => {
+        const { card } = stampCardTimestamps({ ...c });
+        const expTime = new Date(card.expiresAt).getTime();
+        const daysRemaining = Math.max(0, Math.ceil((expTime - now) / (1000 * 60 * 60 * 24)));
+        return {
+          ...card,
+          daysRemaining,
+          isExpired: now >= expTime,
+        };
+      });
 
       let fileBuffer = null;
       let fileName = '';
+      const dateTag = new Date().toISOString().slice(0, 10);
 
       if (format === 'json') {
-        const jsonDump = JSON.stringify(serverCards, null, 2);
-        fileBuffer = Buffer.from(jsonDump, 'utf8');
-        fileName = `uoi_citizens_${guildId || 'registry'}.json`;
+        const payload = {
+          exportType: 'UOI_CITIZEN_REGISTRY_DUMP',
+          exportedAt: new Date().toISOString(),
+          exportedAtFormatted: formatCardDateTime(new Date()),
+          exportedBy: {
+            discordId: interaction.user.id,
+            discordTag: interaction.user.tag,
+          },
+          server: {
+            guildId: guildId || 'global',
+            name: interaction.guild?.name || 'Central Registry',
+          },
+          scope,
+          totalCards: enrichedCards.length,
+          validityPolicy: '2 Months Standard Expiration',
+          cards: enrichedCards,
+        };
+        fileBuffer = Buffer.from(JSON.stringify(payload, null, 2), 'utf8');
+        fileName = `uoi_cards_${guildId || 'registry'}_${dateTag}.json`;
       } else {
-        const headers = ['Serial ID', 'Full Name', 'Gender', 'Roblox Username', 'Roblox UID', 'Rank', 'Division', 'Clearance', 'Status', 'Issued At', 'Discord ID'];
+        const headers = [
+          'Serial ID',
+          'Full Name',
+          'Gender',
+          'Roblox Username',
+          'Roblox UID',
+          'Rank',
+          'Division',
+          'Clearance',
+          'Status',
+          'Issued Date (ISO)',
+          'Issued Date (Formatted)',
+          'Expires Date (ISO)',
+          'Expires Date (Formatted)',
+          'Days Remaining',
+          'Discord ID',
+          'Guild ID',
+        ];
         const csvRows = [headers.join(',')];
-        for (const c of serverCards) {
+        for (const c of enrichedCards) {
           const row = [
             `"${c.serialId || ''}"`,
             `"${(c.fullName || '').replace(/"/g, '""')}"`,
@@ -2646,28 +3347,199 @@ export const cardCommand = {
             `"${c.clearanceLevel || 'Level I'}"`,
             `"${c.status || 'ACTIVE'}"`,
             `"${c.issuedAt || ''}"`,
+            `"${c.issuedAtFormatted || ''}"`,
+            `"${c.expiresAt || ''}"`,
+            `"${c.expiresAtFormatted || ''}"`,
+            `"${c.daysRemaining !== undefined ? c.daysRemaining : ''}"`,
             `"${c.discordId || ''}"`,
+            `"${c.guildId || ''}"`,
           ];
           csvRows.push(row.join(','));
         }
         fileBuffer = Buffer.from(csvRows.join('\n'), 'utf8');
-        fileName = `uoi_citizens_${guildId || 'registry'}.csv`;
+        fileName = `uoi_cards_${guildId || 'registry'}_${dateTag}.csv`;
       }
+
+      // Save an immutable permanent snapshot to data/backups/
+      const backupSnapshotName = savePermanentSnapshot('export', fileName, fileBuffer);
 
       const attachment = new AttachmentBuilder(fileBuffer, { name: fileName });
       const exportEmbed = new EmbedBuilder()
-        .setTitle('📊 UOI Citizen Registry Export')
+        .setTitle('📥 UOI Citizen Cards Download')
         .setColor(0x10b981)
-        .setDescription(`Successfully exported **${serverCards.length}** citizen card record(s) in **${format.toUpperCase()}** format.`)
-        .addFields(
-          { name: 'Total Exported', value: `${serverCards.length} citizens`, inline: true },
-          { name: 'Format', value: format.toUpperCase(), inline: true },
-          { name: 'Exported By', value: `<@${interaction.user.id}>`, inline: true },
+        .setDescription(
+          `Successfully generated and archived **${enrichedCards.length}** citizen card record(s) in **${format.toUpperCase()}** format.\n\n` +
+          `🔒 **Permanent Storage Onwards:** Every card is stamped with complete date & time of creation, exact 2-month expiration date, and archived permanently in the central registry.`
         )
-        .setFooter({ text: 'Union of Indians Registry • Secure Data Export' })
+        .addFields(
+          { name: 'Total Exported', value: `\`${enrichedCards.length}\` citizens`, inline: true },
+          { name: 'File Format', value: format.toUpperCase(), inline: true },
+          { name: 'Scope', value: scope === 'all_servers' ? '🌐 Network-Wide' : `🏛️ ${interaction.guild?.name || 'This Server'}`, inline: true },
+          { name: 'Validity Stamped', value: '⏳ **2 Months** per card', inline: true },
+          { name: 'Archival Backup', value: `\`data/backups/${backupSnapshotName || 'snapshot.json'}\``, inline: true },
+          { name: 'Authorized By', value: `<@${interaction.user.id}> *(Owner/Admin)*`, inline: true }
+        )
+        .setFooter({ text: 'Union of Indians Registry • Permanent Storage & Export' })
         .setTimestamp();
 
       return interaction.editReply({ embeds: [exportEmbed], files: [attachment] });
+    }
+
+    // ==========================================
+    // COMMAND: /card import (Upload Card Files - Multiple Files & Unmarked Format Support)
+    // ==========================================
+    if (sub === 'import') {
+      await interaction.deferReply({ ephemeral: true });
+      const hasPerm = await checkIsOwnerOrAdmin(interaction);
+      if (!hasPerm) {
+        return interaction.editReply({
+          content: '❌ **Permission Denied:** Uploading and importing card files is strictly restricted to the **Server Owner** or members with the **Administrator** permission.',
+        });
+      }
+
+      const mode = interaction.options.getString('mode') || 'merge';
+      const fileOptions = ['file', 'file2', 'file3', 'file4', 'file5'];
+      const attachedFiles = fileOptions
+        .map((optName) => interaction.options.getAttachment(optName))
+        .filter(Boolean);
+
+      if (attachedFiles.length === 0) {
+        return interaction.editReply({
+          content: '❌ **No File Attached:** Please attach at least one valid `.json` or `.csv` card file to import.',
+        });
+      }
+
+      const db = loadDatabase();
+      if (mode === 'replace' && guildId) {
+        // Clear existing cards for this server
+        if (db.serverCards && db.serverCards[guildId]) {
+          db.serverCards[guildId] = {};
+        }
+        if (db.cards && typeof db.cards === 'object') {
+          for (const key of Object.keys(db.cards)) {
+            if (key.startsWith(`${guildId}_`)) {
+              delete db.cards[key];
+            }
+          }
+        }
+      }
+
+      let totalCardsProcessed = 0;
+      let unmarkedStampedCount = 0;
+      let markedPreservedCount = 0;
+      const fileReport = [];
+      const errorReport = [];
+
+      for (const attachment of attachedFiles) {
+        let fileBuffer = null;
+        try {
+          const res = await fetch(attachment.url);
+          if (!res.ok) throw new Error(`HTTP status ${res.status}`);
+          const arrayBuf = await res.arrayBuffer();
+          fileBuffer = Buffer.from(arrayBuf);
+        } catch (fetchErr) {
+          errorReport.push(`Failed to download \`${attachment.name}\`: ${fetchErr.message}`);
+          continue;
+        }
+
+        // Save raw uploaded file to permanent backup storage
+        savePermanentSnapshot('import', `${guildId || 'server'}_${attachment.name}`, fileBuffer);
+
+        // Parse card file
+        const parsedResult = parseCardFile(fileBuffer, attachment.name);
+        if (parsedResult.error || !parsedResult.cards || parsedResult.cards.length === 0) {
+          errorReport.push(`Could not parse \`${attachment.name}\`: ${parsedResult.error || 'No valid card records found'}`);
+          continue;
+        }
+
+        let fileCardsCount = 0;
+        let fileUnmarkedCount = 0;
+
+        for (const rawCard of parsedResult.cards) {
+          if (!rawCard || typeof rawCard !== 'object') continue;
+
+          // Target Discord User ID
+          const targetUserId = (rawCard.discordId || '').trim() ||
+            `imported_${Date.now()}_${Math.floor(1000 + Math.random() * 9000)}`;
+
+          // Stamp date/time and 2-month expiry (handles marked vs unmarked format seamlessly)
+          const { card: stampedCard, wasUnmarked } = stampCardTimestamps(rawCard);
+          if (wasUnmarked) {
+            unmarkedStampedCount++;
+            fileUnmarkedCount++;
+          } else {
+            markedPreservedCount++;
+          }
+
+          // Ensure valid serial ID
+          if (!stampedCard.serialId) {
+            stampedCard.serialId = `UOI-${new Date().getFullYear()}-${Math.floor(100000 + Math.random() * 900000)}`;
+          }
+
+          // Ensure server nickname and division
+          stampedCard.guildId = guildId || stampedCard.guildId || null;
+          stampedCard.fullName = stampedCard.fullName || 'Citizen';
+          stampedCard.assignedRank = (stampedCard.assignedRank || 'CITIZEN').toUpperCase();
+          stampedCard.division = stampedCard.division || 'Civilian Directorate';
+          stampedCard.clearanceLevel = stampedCard.clearanceLevel || computeClearanceLevel(stampedCard.assignedRank, stampedCard.division);
+          stampedCard.serverNickname = stampedCard.serverNickname || `${stampedCard.fullName} [${stampedCard.serialId}]`;
+          stampedCard.importedAt = new Date().toISOString();
+          stampedCard.importedBy = {
+            discordId: interaction.user.id,
+            discordTag: interaction.user.tag,
+          };
+
+          setGuildCard(db, guildId, targetUserId, stampedCard);
+          fileCardsCount++;
+          totalCardsProcessed++;
+        }
+
+        fileReport.push(`• **${attachment.name}**: \`${fileCardsCount}\` cards (${fileUnmarkedCount} auto-stamped from unmarked format)`);
+      }
+
+      // Save to permanent cards database and flush synchronously
+      saveDatabase(db);
+      flushCardsDbSync();
+
+      const importEmbed = new EmbedBuilder()
+        .setTitle('📤 UOI Card Files Upload & Import Complete')
+        .setColor(totalCardsProcessed > 0 ? 0x10b981 : 0xef4444)
+        .setDescription(
+          totalCardsProcessed > 0
+            ? `Successfully uploaded and permanently stored **${totalCardsProcessed}** card(s) across **${attachedFiles.length}** file(s)!\n\n` +
+              `📁 **Permanent Storage Onwards:** All cards are written to \`data/cards.json\` and archived in \`data/backups/\`.\n` +
+              `⏳ **2-Month Expiration & Sentinel:** All imported cards have active 2-month validity windows with proactive automated DM alerts at 10, 5, 3, and 1 days prior.`
+            : `⚠️ **No cards imported:** No valid citizen card records could be extracted from the uploaded file(s).`
+        )
+        .addFields(
+          { name: 'Total Cards Stored', value: `\`${totalCardsProcessed}\` cards`, inline: true },
+          { name: 'Files Uploaded', value: `\`${attachedFiles.length}\` file(s)`, inline: true },
+          { name: 'Import Mode', value: mode === 'replace' ? '⚠️ Replace Server' : '🔄 Merge / Update', inline: true },
+          {
+            name: '⏱️ Date & Time Stamping',
+            value:
+              `• **Unmarked Format Stamped:** \`${unmarkedStampedCount}\` cards *(Auto-stamped with creation date/time and 2-month expiry)*\n` +
+              `• **Marked Cards Preserved:** \`${markedPreservedCount}\` cards *(Retained original dates)*`,
+            inline: false,
+          },
+          {
+            name: '📄 Processed File Details',
+            value: fileReport.length > 0 ? fileReport.join('\n') : '*None*',
+            inline: false,
+          }
+        );
+
+      if (errorReport.length > 0) {
+        importEmbed.addFields({
+          name: '⚠️ Notices / Warnings',
+          value: errorReport.join('\n').slice(0, 1024),
+          inline: false,
+        });
+      }
+
+      importEmbed.setFooter({ text: 'Union of Indians Central Registry • Multi-File Importer' }).setTimestamp();
+
+      return interaction.editReply({ embeds: [importEmbed] });
     }
 
     if (sub === 'verify') {
@@ -2814,28 +3686,22 @@ export const cardCommand = {
       const effectId = interaction.options.getInteger('effect') ?? 2; // Default: Gradient (Effect 2)
       const colorChoice = interaction.options.getString('color') ?? 'tiranga'; // Default: Tiranga Gradient
 
-      // Dark Orange (Deep Saffron: 0xD95700), White (0xFFFFFF), Dark Green (Forest Green: 0x0D652D)
-      let colors = [0xd95700, 0xffffff, 0x0d652d]; // Default Tiranga Dark Orange, White & Dark Green
-      let fallbackColors = [0xd95700, 0x0d652d];
+      // Dark Orange (Deep Saffron: 0xD95700) and Dark Green (Forest Green: 0x0D652D)
+      // Note: Discord API strictly requires display_name_colors to contain at most 2 colors.
+      let colors = [0xd95700, 0x0d652d]; // Default Tiranga Dark Orange & Dark Green
 
       if (colorChoice === 'cyan') {
         colors = [0x38bdf8];
-        fallbackColors = [0x38bdf8];
       } else if (colorChoice === 'saffron') {
         colors = [0xd95700];
-        fallbackColors = [0xd95700];
       } else if (colorChoice === 'emerald') {
         colors = [0x0d652d];
-        fallbackColors = [0x0d652d];
       } else if (colorChoice === 'purple') {
         colors = [0x8b5cf6];
-        fallbackColors = [0x8b5cf6];
       } else if (colorChoice === 'crimson') {
         colors = [0xef4444];
-        fallbackColors = [0xef4444];
       } else if (colorChoice === 'tiranga') {
-        colors = [0xd95700, 0xffffff, 0x0d652d]; // Dark Orange, White, Dark Green
-        fallbackColors = [0xd95700, 0x0d652d];    // Resilient fallback if API limits to 2
+        colors = [0xd95700, 0x0d652d]; // Dark Orange & Dark Green (Tiranga 2-Color Gradient)
       }
 
       const token = (process.env.DISCORD_TOKEN || '').trim();
@@ -2848,47 +3714,69 @@ export const cardCommand = {
       const rest = new REST({ version: '10' }).setToken(token);
 
       try {
+        // 1. Also update bot's server role color if bot has Manage Roles permission!
+        // Discord renders bot username colors in chat and the member sidebar based on role color.
+        let roleColored = false;
+        let coloredRoleName = null;
+        try {
+          const botMember = interaction.guild?.members?.me || (interaction.guild ? await interaction.guild.members.fetch(interaction.client.user.id) : null);
+          if (botMember) {
+            const roleToColor = botMember.roles.cache
+              .filter((r) => r.editable && r.id !== interaction.guild.id)
+              .sort((a, b) => b.position - a.position)
+              .first();
+
+            if (roleToColor) {
+              await roleToColor.setColor(reset ? 0 : colors[0]);
+              roleColored = true;
+              coloredRoleName = roleToColor.name;
+              console.log(`[UOI Bot] 🎨 Set bot role @${roleToColor.name} color to 0x${(colors[0] || 0).toString(16)} in ${interaction.guild.name}`);
+            }
+          }
+        } catch (rErr) {
+          console.warn('[UOI Bot] Notice adjusting bot role color:', rErr.message);
+        }
+
         if (reset) {
-          await rest.patch(`/guilds/${guildId}/members/@me`, {
-            body: {
-              display_name_font_id: null,
-              display_name_effect_id: null,
-              display_name_colors: null,
-            },
-          });
+          try {
+            await rest.patch(`/guilds/${guildId}/members/@me`, {
+              body: {
+                display_name_font_id: null,
+                display_name_effect_id: null,
+                display_name_colors: null,
+              },
+            });
+          } catch (_) {}
 
           return interaction.editReply({
             embeds: [
               new EmbedBuilder()
                 .setTitle('🔄 Bot Display Name Style Reset')
                 .setColor(0x94a3b8)
-                .setDescription('The bot display name has been reverted to normal standard Discord styling.')
+                .setDescription('The bot display name and role color have been reverted to normal standard Discord styling.')
+                .addFields(
+                  { name: 'Role Color Reset', value: roleColored ? `✅ Reverted <@&${coloredRoleName}> to default` : 'ℹ️ Default', inline: true }
+                )
                 .setTimestamp(),
             ],
           });
         }
 
-        // Resilient patch: Try 3 colors (Orange, White, Green), fallback to 2 if Discord rejects length
+        // 2. Patch Discord member display name styling (Max 2 colors)
+        let styleApplied = false;
+        let styleNotice = null;
         try {
           await rest.patch(`/guilds/${guildId}/members/@me`, {
             body: {
               display_name_font_id: fontId,
               display_name_effect_id: effectId,
-              display_name_colors: colors,
+              display_name_colors: colors.slice(0, 2),
             },
           });
+          styleApplied = true;
         } catch (firstAttemptErr) {
-          if (colors.length > 2) {
-            await rest.patch(`/guilds/${guildId}/members/@me`, {
-              body: {
-                display_name_font_id: fontId,
-                display_name_effect_id: effectId,
-                display_name_colors: fallbackColors,
-              },
-            });
-          } else {
-            throw firstAttemptErr;
-          }
+          styleNotice = firstAttemptErr.message;
+          console.warn('[UOI Bot] Discord display_name_colors patch notice:', firstAttemptErr.message);
         }
 
         const fontNames = {
@@ -2913,13 +3801,27 @@ export const cardCommand = {
         const embed = new EmbedBuilder()
           .setTitle('🎨 UOI Bot Name Style Applied!')
           .setColor(colors[0])
-          .setDescription(`Successfully applied **${fontNames[fontId] || `Font ${fontId}`}** to <@${interaction.client.user.id}> in **${interaction.guild?.name || 'this server'}**!`)
+          .setDescription(`Applied styling for <@${interaction.client.user.id}> in **${interaction.guild?.name || 'this server'}**!`)
           .addFields(
             { name: 'Active Font', value: `\`${fontNames[fontId] || fontId}\``, inline: true },
             { name: 'Visual Effect', value: `\`${effectNames[effectId] || effectId}\``, inline: true },
-            { name: 'Color Theme', value: `\`${colorChoice.toUpperCase()}\``, inline: true }
+            { name: 'Color Theme', value: `\`${colorChoice.toUpperCase()}\` (#${colors[0].toString(16).padStart(6, '0')})`, inline: true },
+            {
+              name: '🏷️ Role Color (Chat & Member List)',
+              value: roleColored
+                ? `✅ **Updated <@&${coloredRoleName}>** to #${colors[0].toString(16).padStart(6, '0')}\n*(Visible to everyone in chat, sidebar, and profile cards!)*`
+                : `ℹ️ Ensure the bot has a role above @everyone with \`Manage Roles\` permission so it can auto-color its sidebar name.`,
+              inline: false,
+            },
+            {
+              name: '📱 Discord Display Name Styling Note',
+              value: styleApplied
+                ? `✅ Custom font and gradient properties registered with Discord API.`
+                : `ℹ️ Discord's native text effect styling requires client/Nitro compatibility. The server **Role Color** above provides guaranteed color in chat and member list!`,
+              inline: false,
+            }
           )
-          .setFooter({ text: 'Visible in member list, chat messages, and member profile' })
+          .setFooter({ text: 'Union of Indians Registry • Visual Branding' })
           .setTimestamp();
 
         return interaction.editReply({ embeds: [embed] });
@@ -3139,11 +4041,43 @@ export const cardCommand = {
         });
       }
 
+      if (isApplicationExpired(req, guildConfig)) {
+        req.status = 'EXPIRED';
+        req.expiredAt = new Date().toISOString();
+        saveDatabase(db);
+
+        if (interaction.message) {
+          const disabledRow = new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+              .setCustomId('card_expired_btn')
+              .setLabel('Application Expired (48h Timeout)')
+              .setStyle(ButtonStyle.Secondary)
+              .setDisabled(true)
+              .setEmoji('⏰')
+          );
+          await interaction.message.edit({ components: [disabledRow] }).catch(() => {});
+        }
+
+        return interaction.reply({
+          content: `⏰ **Application Expired:** This card request has exceeded its 48-hour review window and expired. The citizen is cleared to submit a fresh application.`,
+          ephemeral: true,
+        });
+      }
+
       await interaction.deferReply({ ephemeral: true });
 
       // Generate Serial ID & Server Nickname
       const serialId = `UOI-${new Date().getFullYear()}-${Math.floor(100000 + Math.random() * 900000)}`;
       const serverNickname = `${req.fullName} [${serialId}]`;
+
+      // Calculate 2-month expiration and human-readable UTC timestamps
+      const now = new Date();
+      const issuedAt = now.toISOString();
+      const issuedAtFormatted = formatCardDateTime(now);
+      const expiresAtDate = computeCardExpiration(now);
+      const expiresAt = expiresAtDate.toISOString();
+      const expiresAtFormatted = formatCardDateTime(expiresAtDate);
+      const expiresAtTimestamp = Math.floor(expiresAtDate.getTime() / 1000);
 
       // Render Card Image with server's active template
       let cardBuffer = null;
@@ -3161,7 +4095,7 @@ export const cardCommand = {
           avatarUrl: req.robloxAvatarUrl,
           division: req.division || 'Civilian Directorate',
           clearanceLevel: req.clearanceLevel || computeClearanceLevel(req.assignedRank, req.division),
-          issuedAt: new Date().toISOString(),
+          issuedAt,
           issuedOfficerTag: interaction.user.tag,
         });
         cardBuffer = renderResult.buffer;
@@ -3171,7 +4105,7 @@ export const cardCommand = {
         console.error('[UOI Bot] Error rendering approved card image:', err);
       }
 
-      // Save to active card database
+      // Save to active card database with permanent timestamps & 2-month expiry
       const newCardRecord = {
         discordId: req.targetUser.id,
         discordTag: req.targetUser.tag,
@@ -3192,7 +4126,12 @@ export const cardCommand = {
           discordId: interaction.user.id,
           discordTag: interaction.user.tag,
         },
-        issuedAt: new Date().toISOString(),
+        issuedAt,
+        issuedAtFormatted,
+        expiresAt,
+        expiresAtFormatted,
+        expiresAtTimestamp,
+        remindersSent: { d10: false, d5: false, d3: false, d1: false, expired: false },
         serverNickname,
         status: 'ACTIVE',
       };
@@ -3204,6 +4143,7 @@ export const cardCommand = {
       req.reviewedAt = new Date().toISOString();
       req.issuedSerialId = serialId;
       saveDatabase(db);
+      flushCardsDbSync();
 
       // Edit staff message to show approved state
       try {
@@ -3301,7 +4241,8 @@ export const cardCommand = {
             inline: true,
           },
           { name: 'Approving Officer', value: `<@${interaction.user.id}>`, inline: true },
-          { name: 'Assigned Nickname', value: `\`${serverNickname}\``, inline: true }
+          { name: 'Assigned Nickname', value: `\`${serverNickname}\``, inline: true },
+          { name: '⏳ Expiration Date', value: `<t:${expiresAtTimestamp}:D> (<t:${expiresAtTimestamp}:R>) *(2 Months)*`, inline: true }
         )
         .setFooter({
           text: usedTemplate
@@ -3370,6 +4311,13 @@ export const cardCommand = {
               { name: '🏷️ Assigned Nickname', value: `\`${serverNickname}\``, inline: true },
               { name: '🛡️ Approving Officer', value: `<@${interaction.user.id}> (\`${interaction.user.tag}\`)`, inline: true },
               {
+                name: '⏳ 2-Month Validity Window',
+                value:
+                  `• **Valid Thru:** <t:${expiresAtTimestamp}:F> (<t:${expiresAtTimestamp}:R>)\n` +
+                  `• **Renewal Reminders:** You will receive proactive automated renewal alerts **10, 5, 3, and 1 days prior** to expiry!`,
+                inline: false,
+              },
+              {
                 name: '💡 Helpful Tips',
                 value:
                   `• Run \`/card show\` anytime in **${serverName}** to display your registered card.\n` +
@@ -3429,6 +4377,29 @@ export const cardCommand = {
         });
       }
 
+      if (isApplicationExpired(req, guildConfig)) {
+        req.status = 'EXPIRED';
+        req.expiredAt = new Date().toISOString();
+        saveDatabase(db);
+
+        if (interaction.message) {
+          const disabledRow = new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+              .setCustomId('card_expired_btn')
+              .setLabel('Application Expired (48h Timeout)')
+              .setStyle(ButtonStyle.Secondary)
+              .setDisabled(true)
+              .setEmoji('⏰')
+          );
+          await interaction.message.edit({ components: [disabledRow] }).catch(() => {});
+        }
+
+        return interaction.reply({
+          content: `⏰ **Application Expired:** This card request has exceeded its 48-hour review window and expired. The applicant has been unlocked to reapply.`,
+          ephemeral: true,
+        });
+      }
+
       // Pop up a modal asking the officer for the decline reason
       const modal = new ModalBuilder()
         .setCustomId(`card_modal_decline_${requestId}`)
@@ -3475,6 +4446,24 @@ export const cardCommand = {
         });
       }
 
+      // Check if applicant already has a pending request awaiting review
+      const existingPending = Object.values(db.pendingRequests || {}).find(
+        (r) => r.status === 'PENDING' && r.guildId === guildId && r.targetUser?.id === targetUser.id
+      );
+      if (existingPending) {
+        if (isApplicationExpired(existingPending, guildConfig)) {
+          existingPending.status = 'EXPIRED';
+          existingPending.expiredAt = new Date().toISOString();
+          saveDatabase(db);
+          console.log(`[UOI Bot] ⏰ Auto-expired stale pending request ${existingPending.id} for <@${targetUser.id}> on modal apply.`);
+        } else {
+          const expiresAtUnix = existingPending.expiresAtTimestamp || (existingPending.expiresAt ? Math.floor(new Date(existingPending.expiresAt).getTime() / 1000) : null);
+          return interaction.editReply({
+            content: `⏳ **Application Already Pending Review:** You already have an active card request (\`${existingPending.id}\`) awaiting review in <#${guildConfig.staffChannelId}>.${expiresAtUnix ? ` It expires <t:${expiresAtUnix}:R>.` : ''}`,
+          });
+        }
+      }
+
       // Auto-scan member Discord roles
       let targetMember = null;
       if (interaction.guild) {
@@ -3499,6 +4488,13 @@ export const cardCommand = {
       }
 
       const requestId = `REQ-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
+
+      // Calculate application expiration window (e.g. 48 hours)
+      const appExpiryMs = getApplicationExpiryMs(guildConfig);
+      const appExpiresAtDate = new Date(Date.now() + appExpiryMs);
+      const appExpiresAt = appExpiresAtDate.toISOString();
+      const appExpiresAtTimestamp = Math.floor(appExpiresAtDate.getTime() / 1000);
+
       db.pendingRequests = db.pendingRequests || {};
       const requestRecord = {
         id: requestId,
@@ -3520,6 +4516,8 @@ export const cardCommand = {
         robloxDetectionConfidence: robloxInfo.confidence,
         robloxHasVerifiedBadge: robloxInfo.hasVerifiedBadge,
         submittedAt: new Date().toISOString(),
+        expiresAt: appExpiresAt,
+        expiresAtTimestamp: appExpiresAtTimestamp,
         status: 'PENDING',
         declineReason: null,
         reviewedBy: null,
@@ -3546,7 +4544,8 @@ export const cardCommand = {
               { name: '🎖️ Auto-Scanned Role', value: scannedRankInfo.roleId ? `<@&${scannedRankInfo.roleId}> (\`${assignedRank}\`)` : `\`${assignedRank}\``, inline: true },
               { name: 'Roblox Identity', value: `[@${robloxInfo.username}](https://www.roblox.com/users/${robloxInfo.userId}/profile)`, inline: true },
               { name: 'Request ID', value: `\`${requestId}\``, inline: true },
-              { name: 'Submitted At', value: `<t:${Math.floor(Date.now() / 1000)}:R>`, inline: true }
+              { name: 'Submitted At', value: `<t:${Math.floor(Date.now() / 1000)}:R>`, inline: true },
+              { name: '⏳ Application Expiry', value: `<t:${appExpiresAtTimestamp}:R> (<t:${appExpiresAtTimestamp}:f>)`, inline: true }
             )
             .setFooter({ text: `UOI Staff Review Queue • Request ${requestId}` })
             .setTimestamp();
@@ -3577,7 +4576,8 @@ export const cardCommand = {
           { name: 'Full Name', value: fullName, inline: true },
           { name: 'Division', value: division, inline: true },
           { name: '🎖️ Auto-Scanned Server Role', value: scannedRankInfo.roleId ? `<@&${scannedRankInfo.roleId}> (\`${assignedRank}\`)` : `\`${assignedRank}\``, inline: true },
-          { name: 'Staff Review Channel', value: `<#${guildConfig.staffChannelId}>`, inline: true }
+          { name: 'Staff Review Channel', value: `<#${guildConfig.staffChannelId}>`, inline: true },
+          { name: '⏳ Review Timeout Window', value: `<t:${appExpiresAtTimestamp}:R> (Auto-expires if unreviewed)`, inline: true }
         )
         .setFooter({ text: 'Union of Indians Central Registry • Verification Queue' })
         .setTimestamp();
@@ -3601,6 +4601,13 @@ export const cardCommand = {
 
     if (req.status !== 'PENDING') {
       return interaction.reply({ content: `⚠️ Request is already marked as ${req.status}.`, ephemeral: true });
+    }
+
+    if (isApplicationExpired(req, guildConfig)) {
+      req.status = 'EXPIRED';
+      req.expiredAt = new Date().toISOString();
+      saveDatabase(db);
+      return interaction.reply({ content: `⏰ **Application Expired:** Request \`${requestId}\` has exceeded its 48-hour review window and expired.`, ephemeral: true });
     }
 
     await interaction.deferReply({ ephemeral: true });

@@ -45,7 +45,86 @@
       },
       "issuedAt": "2026-11-01T09:40:11.971Z",
       "serverNickname": "Rohan Sharma [UOI-2026-705970]",
-      "status": "ACTIVE"
+      "status": "ACTIVE",
+      "issuedAtFormatted": "01 Nov 2026, 09:40 UTC",
+      "expiresAt": "2027-01-01T09:40:11.971Z",
+      "expiresAtFormatted": "01 Jan 2027, 09:40 UTC",
+      "expiresAtTimestamp": 1798796411,
+      "remindersSent": {
+        "d10": false,
+        "d5": false,
+        "d3": false,
+        "d1": false,
+        "expired": false
+      }
+    },
+    "test_guild_exp_user_sentinel_10d": {
+      "discordId": "user_sentinel_10d",
+      "serialId": "UOI-2026-TEST10",
+      "fullName": "Card Ten Days",
+      "assignedRank": "CITIZEN",
+      "guildId": "test_guild_exp",
+      "issuedAt": "2026-09-15T03:13:07.076Z",
+      "expiresAt": "2026-11-13T15:13:07.076Z",
+      "status": "ACTIVE",
+      "remindersSent": {
+        "d10": true,
+        "d5": false,
+        "d3": false,
+        "d1": false,
+        "expired": false
+      }
+    },
+    "test_guild_exp_user_sentinel_3d": {
+      "discordId": "user_sentinel_3d",
+      "serialId": "UOI-2026-TEST3",
+      "fullName": "Card Three Days",
+      "assignedRank": "OFFICER",
+      "guildId": "test_guild_exp",
+      "issuedAt": "2026-09-08T03:13:07.076Z",
+      "expiresAt": "2026-11-06T15:13:07.076Z",
+      "status": "ACTIVE",
+      "remindersSent": {
+        "d10": true,
+        "d5": true,
+        "d3": true,
+        "d1": false,
+        "expired": false
+      }
+    },
+    "test_guild_exp_user_sentinel_1d": {
+      "discordId": "user_sentinel_1d",
+      "serialId": "UOI-2026-TEST1",
+      "fullName": "Card One Day",
+      "assignedRank": "LIEUTENANT",
+      "guildId": "test_guild_exp",
+      "issuedAt": "2026-09-06T03:13:07.076Z",
+      "expiresAt": "2026-11-04T22:25:07.076Z",
+      "status": "ACTIVE",
+      "remindersSent": {
+        "d10": true,
+        "d5": true,
+        "d3": true,
+        "d1": true,
+        "expired": false
+      }
+    },
+    "test_guild_exp_user_sentinel_exp": {
+      "discordId": "user_sentinel_exp",
+      "serialId": "UOI-2026-TESTEXP",
+      "fullName": "Card Expired",
+      "assignedRank": "SENIOR CITIZEN",
+      "guildId": "test_guild_exp",
+      "issuedAt": "2026-09-04T03:13:07.076Z",
+      "expiresAt": "2026-11-03T03:13:07.076Z",
+      "status": "EXPIRED",
+      "remindersSent": {
+        "d10": true,
+        "d5": true,
+        "d3": true,
+        "d1": true,
+        "expired": true
+      }
     }
   },
   "serToUser": {
@@ -56,6 +135,22 @@
     "UOI-2026-705970": {
       "userId": "test_user_777",
       "guildId": "test_guild_123"
+    },
+    "UOI-2026-TEST10": {
+      "userId": "user_sentinel_10d",
+      "guildId": "test_guild_exp"
+    },
+    "UOI-2026-TEST3": {
+      "userId": "user_sentinel_3d",
+      "guildId": "test_guild_exp"
+    },
+    "UOI-2026-TEST1": {
+      "userId": "user_sentinel_1d",
+      "guildId": "test_guild_exp"
+    },
+    "UOI-2026-TESTEXP": {
+      "userId": "user_sentinel_exp",
+      "guildId": "test_guild_exp"
     }
   },
   "guilds": {

@@ -1,5 +1,5 @@
 {
-  "summary":  "Comprehensive roadmap and mapping of upcoming feature enhancements, card metadata schema expansions, visual card layout updates, and technical integration specifications for the UOI Card Bot.",
-  "updatedAt":  "2026-10-22T08:02:27.333806760Z",
-  "userFacing":  true
+  "summary": "Updated Feature & Card Info Roadmap documenting the implementation of 2-month validity, proactive automated DM sentinels (10, 5, 3, 1 days prior), /card export & /card import, unmarked format acceptance, and permanent backup storage.",
+  "updatedAt": "2026-11-04T03:14:40.815630628Z",
+  "userFacing": true
 }

@@ -241,6 +241,10 @@
           <div class="stat-label">Data Persistence</div>
           <div class="stat-val">Atomic JSON + Backup Sync</div>
         </div>
+        <div class="stat-box">
+          <div class="stat-label">Card Expiry Sentinel</div>
+          <div class="stat-val" style="color: #ec4899;">⏰ 2-Month Expiry &bull; 10, 5, 3, 1 Days DMs</div>
+        </div>
       </div>
 
       <!-- Permanent Server Memory Card -->
@@ -366,6 +370,16 @@
           </thead>
           <tbody>
             <tr>
+              <td><code>/card export</code></td>
+              <td>Download and export official card files (JSON or CSV) with permanent timestamps, 2-month expiry math, and backup archiving.</td>
+              <td>Server Owner / Administrator</td>
+            </tr>
+            <tr>
+              <td><code>/card import</code></td>
+              <td>Upload card files (supports multiple attachments <code>file</code>-<code>file5</code>, accepts unmarked format, auto-stamps 2-month expiry, permanent storage).</td>
+              <td>Server Owner / Administrator</td>
+            </tr>
+            <tr>
               <td><code>/card set-template</code></td>
               <td>Upload or update this server's official template (attachment or URL). Auto-normalized to 1200×900 PNG.</td>
               <td>Administrator / Staff</td>
@@ -374,11 +388,6 @@
               <td><code>/card view-template</code></td>
               <td>Inspect active card template, resolution, and stamping blueprint for this server.</td>
               <td>Everyone</td>
-            </tr>
-            <tr>
-              <td><code>/card reset-template</code></td>
-              <td>Removes custom template and reverts to the official standard UOI template.</td>
-              <td>Administrator / Staff</td>
             </tr>
             <tr>
               <td><code>/card setup</code></td>

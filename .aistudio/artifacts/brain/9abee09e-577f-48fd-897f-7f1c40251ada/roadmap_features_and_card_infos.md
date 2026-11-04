@@ -1,129 +1,108 @@
 # Union of Indians (UOI) ID Card System — Feature & Card Info Roadmap
 
-This roadmap details the planned architectural updates, card information schema expansions, visual layout enhancements, and functional upgrades for the **UOI ID Card Generation & Registry Bot**.
+This roadmap details the architectural updates, card information schema expansions, visual layout enhancements, and functional upgrades for the **UOI ID Card Generation & Registry Bot**.
 
 ---
 
-## 1. Card Information Schema: Current vs. Proposed
+## 1. Card Information Schema: Implementation Status
 
-The next evolution of the UOI Citizen ID Card expands the data payload from basic identity verification into a comprehensive civil and security identity credential.
+The UOI Citizen ID Card system has been expanded into a complete civil and security identity credential with permanent timestamping and 2-month lifecycle management.
 
-### 1.1 Field Mapping Comparison
+### 1.1 Field Mapping & Status
 
-| Field Name | Type | Current State | Proposed Update & Purpose |
+| Field Name | Type | Status | Function & Description |
 |---|---|---|---|
-| **Full Legal Name** | String | ✅ Active | Enhanced text-scaling algorithm to support multi-part names up to 36 characters without overflow. |
-| **Roblox Username** | String | ✅ Active | Displays `@username` with verified Bloxlink/RoVer cross-check status. |
+| **Full Legal Name** | String | ✅ Active | Rendered at row 1 with auto-scaling to prevent visual clipping. |
+| **Roblox Username** | String | ✅ Active | Displays `@username` with verified Bloxlink/RoVer/auto-detection status. |
 | **Roblox User ID** | Numeric String | ✅ Active | Numeric user identifier linked to Roblox profile. |
-| **Gender** | Enum / String | ✅ Active | Standardized (`Male`, `Female`, `Non-Binary`, `Classified`). |
-| **Assigned Rank** | String | ✅ Active | Rendered prominently inside the golden under-portrait rank badge. |
+| **Gender** | Enum / String | ✅ Active | Standardized (`Male`, `Female`, `Unspecified`). |
+| **Assigned Rank** | String | ✅ Active | Automatically scanned from Discord server hierarchy roles. |
 | **Unique Serial ID** | String | ✅ Active | Standard format: `UOI-YYYY-XXXXXX`. |
-| **Scannable Barcode** | Code 128 Image | ✅ Active | Scannable by 1D laser/optical barcode scanners. |
-| **Division / Branch** | String / Enum | 🆕 **Proposed** | **New field**: Identifies the citizen's government or military branch: *(e.g. Armed Forces, Homeland Security, Diplomatic Corps, Civil Service, Judiciary, Civilian Directorate)*. |
-| **Security Clearance Level** | Enum | 🆕 **Proposed** | **New field**: Tiered clearance level *(Level I: General Citizen, Level II: Civil Officer, Level III: Field Operative, Level IV: High Command, Level V: Directorate)*. |
-| **Date of Issuance** | Date String | 🆕 **Proposed** | Formatted date of approval *(e.g. `24 OCT 2026`)*. |
-| **Validity / Expiry** | Date String | 🆕 **Proposed** | Formatted expiration stamp *(e.g. `VALID THRU: OCT 2028` or `LIFETIME CITIZENSHIP`)*. |
-| **Territory / State** | String | 🆕 **Proposed** | Province/District of registration *(e.g. `New Delhi Capital Territory`, `Punjab`, `Bengal`, `Maharashtra`)*. |
-| **Blood Group** | String | 🆕 **Proposed** | Optional military roleplay identifier *(e.g. `O+`, `A+`, `B+`, `AB+`)*. |
-| **Dual Scan: Verification QR** | QR Code Image | 🆕 **Proposed** | High-density QR code pointing directly to the live web verification URL: `https://<domain>/verify?serial=UOI-2026-XXXXXX`. |
-| **Digital Hologram / Seal** | Graphical Asset | 🆕 **Proposed** | Embossed Ministry of Home Affairs / Union Directorate metallic foil seal overlay. |
-| **Officer Signature Stamp** | Rendered Path | 🆕 **Proposed** | Dynamic digital signature script of the reviewing officer. |
+| **Scannable Barcode** | Code 128 Image | ✅ Active | High-contrast Code 128 barcode scannable by 1D optical scanners. |
+| **High-Density QR Code**| QR Code Image | ✅ Active | Scannable QR code resolving to the verification portal. |
+| **Division / Branch** | String | ✅ Active | Civilian Directorate, Homeland Security, or Armed Forces. |
+| **Security Clearance** | Enum | ✅ Active | Level I (Civilian) through Level V (Directorate). |
+| **Date of Issuance** | ISO / UTC String| ✅ Active | Exact date and time stamped when card is created/approved. |
+| **2-Month Expiration** | ISO / UTC String| ✅ Active | Exact expiration date computed at `issuedAt + 2 months`. |
+| **Days Remaining** | Integer | ✅ Active | Computed countdown to expiration; tracked in database & exports. |
+| **Reminder Flags** | Object | ✅ Active | `{ d10, d5, d3, d1, expired }` anti-spam tracking for automated DMs. |
+| **Server Flag** | Dynamic Canvas | ✅ Active | Renders `SERVER-SPECIFIC • [SERVER]` flag when citizen has multi-server cards. |
 
 ---
 
-## 2. Updated Card Visual Layout (1200 x 900 Canvas)
+## 2. Card Visual Layout (1200 x 900 Canvas)
 
-Below is the coordinate layout mapping for the expanded card info:
+Coordinate layout mapping for the official UOI card:
 
 ```
 +---------------------------------------------------------------------------------------------------------+
 | [EMBLEM]  UNION OF INDIANS • CITIZEN IDENTITY CARD                    SERIAL: UOI-2026-849201           |
+|                                                     [SERVER-SPECIFIC • LOCAL JURISDICTION] (If multi)   |
 +---------------------------------------------------------------------------------------------------------+
 |                                                                                                         |
 |  +---------------------------+   FULL LEGAL NAME:         VIKRAMADITYA CHATTERJEE                       |
 |  |                           |   ROBLOX IDENTITY:         @Vikram_RBLX  [UID: 198420412]               |
-|  |                           |   DIVISION / BRANCH:       HOMELAND SECURITY & BORDER CORPS              |
-|  |    ROBLOX 3D AVATAR       |   RANK / DESIGNATION:      SENIOR COMMANDANT                             |
-|  |    HIGH-RES HEADSHOT      |   CLEARANCE TIER:          LEVEL IV (EXECUTIVE SECURE)                   |
-|  |    (337 x 344 px)         |   TERRITORY / STATE:       BENGAL DISTRICT                               |
-|  |                           |   GENDER & BLOOD TYPE:     MALE  •  O+ POSITIVE                          |
-|  |                           |   DATE OF ISSUANCE:        24 OCT 2026                                   |
-|  +---------------------------+   EXPIRATION STAMP:        VALID THRU: OCT 2028                          |
-|  | RANK: SENIOR COMMANDANT   |                                                                          |
-|  +---------------------------+   [GOVT SEAL]              [OFFICER SIGNATURE]         [VERIFY QR]       |
-|  | ||||||||||||||||||||||||| |   Ministry of Home Affairs  Approved: @MajorSingh       Scan for Live    |
-|  | CODE 128 SERIAL BARCODE   |   Union of Indians          Directorate of Personnel    Dossier Record   |
-|  +---------------------------+                                                                          |
+|  |                           |   ROBLOX UID:              198420412                                     |
+|  |    ROBLOX 3D AVATAR       |   GENDER:                  MALE                                          |
+|  |    HIGH-RES HEADSHOT      |   RANK / DESIGNATION:      SENIOR COMMANDANT                             |
+|  |    (337 x 344 px)         |                                                                          |
+|  |                           |   CLEARANCE:               LEVEL IV (EXECUTIVE SECURE)                   |
+|  +---------------------------+   DIVISION:                HOMELAND SECURITY & BORDER CORPS              |
+|  [ RANK BADGE: COMMANDANT ]      ISSUED: 04 NOV 2026 • VALID THRU: 04 JAN 2027                          |
+|  [ SCANNABLE CODE 128 BARCODE]                            [ VERIFICATION QR CODE - SCAN TO VERIFY ]     |
 |                                                                                                         |
-|  MICROTEXT: UNION OF INDIANS OFFICIAL CITIZEN IDENTITY DOCUMENT • UNAUTHORIZED ALTERATION IS PROHIBITED |
+| ================================== SECURITY MICROTEXT BAND ============================================ |
 +---------------------------------------------------------------------------------------------------------+
 ```
 
-### Coordinate Allocation Specifications
-1. **Left Identity Column (X: 54 to 402)**:
-   * **Avatar Frame**: `X: 60, Y: 324, W: 337, H: 344` (Curved corners, gold inner bezel).
-   * **Rank Badge Banner**: `X: 54, Y: 687, W: 348, H: 46` (Deep navy background, bold gold border, center text).
-   * **1D Barcode Container**: `X: 54, Y: 758, W: 348, H: 100` (Crisp white container with scannable Code 128 bars).
-2. **Right Citizen Dossier Column (X: 472 to 1140)**:
-   * **Field Label Font**: Bold 14px Slate-400 monospace / uppercase.
-   * **Field Value Font**: Bold 20px - 22px High-contrast white typography with dynamic auto-scaling for long names.
-   * **Row Spacing**: 9 distinct data rows spaced at 44px intervals.
-3. **Bottom Security Footer (Y: 770 to 860)**:
-   * **Holographic Seal**: Rendered at `X: 472, Y: 770, W: 85, H: 85`.
-   * **Officer Endorsement**: Rendered at `X: 610, Y: 780` displaying reviewing officer handle and date.
-   * **Live Verification QR**: Rendered at `X: 1020, Y: 765, W: 90, H: 90`.
-   * **Security Microtext Strip**: Continuous 8px microtext rendered at `Y: 885` spanning canvas width.
-
 ---
 
-## 3. Functioning & Feature Roadmap
+## 3. Implemented Functional Features
 
-### Phase 1: Streamlined Application & Auto-Role Workflow (Immediate)
-* **Direct Message (DM) Notification on Card Acceptance & Rejection**:
-  * ✅ **Implemented**: Upon clicking **[✅ Accept & Issue Card]**, the bot automatically dispatches a private DM to the accepted citizen containing their official card PNG graphic, legal name, Serial ID, rank, Roblox identity, and quick tips.
-  * ✅ **Implemented**: If rejected, a DM is sent detailing the specific reason provided by the reviewing officer so the applicant can correct and re-apply.
-* **Interactive Modal Application (`/card apply`)**:
-  * Instead of typing all parameters in a slash command, clicking `/card apply` opens a native Discord Modal with form fields (Full Name, Roblox Profile, Gender, Division preference).
-* **Automated Verified Role Provisioning**:
-  * New configuration option in `/card setup verified_role:@Citizen`.
-  * When a card is accepted, the bot automatically grants the `@Citizen` role in the Discord server alongside the existing nickname synchronizer.
-* **Audit & Log Routing (`audit_channel`)**:
-  * Added to `/card setup audit_channel:#card-logs`.
-  * Logs all administrative actions (approvals, rejections, promotions, revocations, template changes) with audit metadata.
+### 3.1 Download & Upload Card Files (`/card export` & `/card import`)
+* **Download (`/card export`)**:
+  * Restricted strictly to the **Server Owner** or members with the **Administrator** permission.
+  * Exports JSON database dump or CSV spreadsheet.
+  * Every card contains complete timestamps (`issuedAt`, `issuedAtFormatted`, `expiresAt`, `expiresAtFormatted`, `daysRemaining`).
+  * Automatically archives a permanent backup snapshot in `data/backups/`.
+* **Upload (`/card import`)**:
+  * Restricted strictly to the **Server Owner** or members with the **Administrator** permission.
+  * Supports multiple file attachments in a single execution (`file`, `file2`, `file3`, `file4`, `file5`).
+  * Seamlessly accepts **unmarked format** (legacy files without dates/times): automatically detects missing timestamps and auto-stamps current creation date/time and 2-month expiry.
+  * Preserves existing marked timestamps for cards with valid dates.
+  * Archives raw files into `data/backups/` and persists to `data/cards.json` with synchronous atomic flush.
 
-### Phase 2: Self-Service & Lifecycle Management (Mid-Term)
-* **Card Refresh & Avatar Resync (`/card refresh`)**:
-  * Allows citizens to update their card image when they change Roblox avatars or clothing without changing their existing Serial ID or requiring full staff re-application.
-* **Division Transfer Requests (`/card transfer`)**:
-  * Workflow for moving between divisions (e.g. from Civil Service to Armed Forces) with officer sign-off.
-* **Bulk Registry Export (`/card export`)**:
-  * Restricted to Server Owner & Admins.
-  * Exports all active, pending, and revoked cards as structured CSV or JSON for server backups.
+### 3.2 2-Month Validity & Automated Proactive DMs
+* **Validity Window**: Every citizen card is valid for exactly 2 calendar months from issuance.
+* **Proactive Sentinel DMs**:
+  * **10 Days Prior**: Initial courtesy reminder.
+  * **5 Days Prior**: Second reminder with days remaining.
+  * **3 Days Prior**: Urgent warning notice.
+  * **1 Day Prior**: Final 24-hour notice before expiration.
+  * **0 Days (Expired)**: Expiration notice updating card status to `EXPIRED`.
+* **Self-Service Renewal**:
+  * Cardholders can renew their validity for another 2 months at any time by running `/card refresh`.
+  * Staff can approve renewal applications submitted through `/card apply` or `/card generate`.
 
-### Phase 3: External Integration & In-Game Roblox Lua Bridge (Advanced)
-* **Web Verification Hologram Portal**:
-  * Public web route on the bot's HTTP server (`/verify/:serialId`) where scanning the QR code or visiting the URL displays a 3D holographic rendering of the card and citizen status.
-* **Roblox In-Game HTTP API**:
-  * REST API endpoint (`/api/v1/verify?robloxId=XXXXX`) enabling Roblox game scripts to:
-    * Check if an in-game player holds an active UOI Citizen Card.
-    * Grant exclusive in-game perks, access doors, or uniform ranks based on their verified card division and rank tier.
-* **Card NFC / Mobile Wallet Pass Generation**:
-  * Optional Apple Wallet (.pkpass) export enabling citizens to carry their UOI ID card directly on mobile devices.
+### 3.3 Server Role Auto-Scanning
+* The bot automatically inspects the applicant's Discord roles to determine their highest hierarchical, hoisted, or colored role.
+* Manual role typing has been eliminated to protect against rank falsification.
 
----
+### 3.4 Approval Direct Messages (DMs)
+* When staff clicks **[✅ Accept & Issue Card]**, the bot automatically sends a celebratory DM directly to the citizen with their attached ID card graphic and expiration date.
+* When staff clicks **[❌ Decline with Reason]**, the bot sends a DM detailing the officer's exact justification.
 
-## 4. Implementation Status Matrix
+### 3.5 Server Display Name Styling
+* `/card botstyle`: Configures bot display name font (e.g. Font 10 Sinistre), gradient effects, and colors.
+* Automatically synchronizes the bot's highest editable server role color (e.g. Deep Saffron `#D95700`) so its name turns the chosen color in chat and the member list for all users.
 
-| Feature | Impact | Complexity | Status |
-|---|---|---|---|
-| Auto-Scanned Discord Server Roles | High | Low | **✅ Active (Shipped)** |
-| Expanded Metadata (Clearance, Division, Dates) | High | Low | **✅ Active (Shipped)** |
-| Automatic `@Citizen` Discord Role Assignment | High | Low | **✅ Active (Shipped)** |
-| Interactive Discord Modal Form (`/card apply`) | High | Medium | **✅ Active (Shipped)** |
-| Web Verification Portal (`/verify` & `/verify/:serialId`) | High | Medium | **✅ Active (Shipped)** |
-| In-Game Roblox HTTP Verification API (`/api/v1/verify`) | High | Medium | **✅ Active (Shipped)** |
-| Dynamic QR Code Generation on Card Graphic | High | Low | **✅ Active (Shipped)** |
-| Self-Service Card Avatar & Role Resync (`/card refresh`) | Medium | Low | **✅ Active (Shipped)** |
-| Administrative Audit Log Channel Dispatch | Medium | Low | **✅ Active (Shipped)** |
-| Batch CSV/JSON Registry Export (`/card export`) | Medium | Low | **✅ Active (Shipped)** |
-| Bottom Anti-Counterfeiting Microtext Band | Medium | Low | **✅ Active (Shipped)** |
+### 3.6 Automated 48-Hour Card Application Expiry Sentinel
+* **Prevents Stuck / Hanging Applications**:
+  * Unreviewed card applications automatically expire after a configurable review window (default: 48 hours).
+  * Stamped with `submittedAt`, `expiresAt`, and `expiresAtTimestamp` upon creation in `/card apply`, `/card generate`, or interactive modal.
+  * Live countdowns rendered in both the staff review ticket (`<t:unix:R>`) and applicant confirmation embed.
+* **Auto-Unblock on Reapplication**:
+  * If an applicant runs `/card apply` or `/card generate` while having a stale pending request, the bot automatically transitions the stale request to `EXPIRED` and allows the new submission through.
+* **Review Button Guarding & Sweep**:
+  * Action buttons on expired review messages reject clicks with an explanation and are automatically deactivated to `⏰ Application Expired (48h Timeout)`.
+  * Background sentinel auto-sweeps every 30 minutes, transitioning expired records and sending a courtesy DM to the applicant so they know they are cleared to reapply.

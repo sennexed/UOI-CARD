@@ -50,15 +50,15 @@ Removes the custom template and restores the default official Union of Indians t
 
 ## 3. Citizen Card Workflow
 
-### Applying for an ID Card (`/card generate`)
+### Applying for an ID Card (`/card generate` or `/card apply`)
 
-The `/card generate` command is now a unified, intelligent application command:
+The `/card generate` command is an intelligent, streamlined application command:
 
 #### Method A: Interactive Modal Popup Form (Recommended)
 ```
 /card generate
 ```
-Simply type `/card generate` and press Enter with no options! The bot instantly opens an interactive modal form prompting for:
+Type `/card generate` with no options to open an interactive modal prompting for:
 * **Full Legal Name**
 * **Gender**
 * **Roblox Username** (optional — auto-detects if left blank)
@@ -68,25 +68,27 @@ Simply type `/card generate` and press Enter with no options! The bot instantly 
 ```
 /card generate fullname:Suresh Kumar gender:Male [roblox:Suresh_RBLX] [division:Civilian Directorate] [citizen:@user]
 ```
-* **Auto-Scanned Server Role**: The bot automatically scans the applicant's Discord roles in the server and stamps their genuine hierarchical role (e.g. *Senior Officer*, *Commandant*, *Cadet*, *Citizen*) onto the card. Manual rank selection has been eliminated to prevent falsification.
+* **Auto-Scanned Server Role**: Automatically scans the applicant's Discord roles in the server and stamps their genuine hierarchical role (e.g. *Senior Officer*, *Commandant*, *Cadet*, *Citizen*) onto the card. Manual rank typing has been eliminated to prevent falsification.
 * If the user already linked their Roblox account, the `roblox` parameter can be omitted.
-* The bot queues the request and dispatches an interactive review ticket to the staff channel.
+* Dispatches an interactive review ticket to the staff channel.
 
 ### Self-Service Card Refresh
 ```
 /card refresh
 ```
-Allows existing cardholders to refresh their card graphic with their latest Roblox 3D avatar headshot (e.g. changed outfits or accessories) and latest Discord server role while preserving their exact same unique Serial ID!
+Allows cardholders to refresh their card graphic with their latest Roblox 3D avatar headshot and latest Discord server role while preserving their exact same unique Serial ID. If an expired cardholder runs `/card refresh`, their active 2-month validity window is renewed!
 
 ### Inspecting Active Citizen Card & Records
 ```
 /card show [citizen:@user]
 ```
-* **Implicit Server Context Detection**: The bot automatically resolves the current server's citizenship registry and active custom template.
+* **Implicit Server Context Detection**: Automatically resolves the current server's citizenship registry and active custom template.
 * **Server-Specific Credential Flag**:
   * If a citizen holds active cards across multiple servers (e.g. Server A as *Commandant* and Server B as *Cadet*), the card graphic dynamically renders a prominent **`SERVER-SPECIFIC • [SERVER NAME]`** security flag in gold and emerald.
-  * The Discord embed highlights the jurisdiction scope and lists how many distinct server-specific cards the member holds.
-  * If the citizen does not have a card in the current server, the command cleanly indicates this and lists the other servers where they hold registered citizenship, preventing cross-server confusion.
+  * Embed highlights the jurisdiction scope and lists how many distinct server-specific cards the member holds.
+* **2-Month Validity & Expiration Display**:
+  * Displays issue date, exact 2-month expiration date (`<t:unix:F>`), and countdown (`<t:unix:R>`).
+  * If expired, displays red alert banner: `🔴 EXPIRED (2-Month Validity Ended)` and prompts renewal.
 
 ### Inspecting Roblox Identity & Linking
 ```
@@ -94,66 +96,121 @@ Allows existing cardholders to refresh their card graphic with their latest Robl
 ```
 Displays comprehensive Roblox identity dossier, 3D avatar headshot, Bloxlink/RoVer cross-check status, and registry record.
 
-### Exporting Citizen Database (Admins & Officers)
+---
+
+## 4. Downloading & Uploading Card Files (Owner & Administrator Only)
+
+Strictly restricted to the **Server Owner** or members with the **Administrator** permission.
+
+### Downloading Card Database Files (`/card export`)
 ```
-/card export format:csv
+/card export [format:json|csv] [scope:this_server|all_servers]
 ```
-Generates a downloadable CSV spreadsheet or JSON database dump of all registered citizen cards in the server for offline archiving.
+* **Complete Metadata & Timestamps**: Every card exported contains full creation date/time (`issuedAt` in ISO & human-readable UTC), exact 2-month expiration date (`expiresAt`), `daysRemaining`, clearance, division, Roblox UID, and Discord ID.
+* **Format Choices**:
+  * `json` (Default): Complete JSON database dump.
+  * `csv`: Excel / Google Sheets compatible spreadsheet.
+* **Permanent Backup Snapshot**: Every export automatically creates an immutable, permanent snapshot in `data/backups/export_<guildId>_<timestamp>.<ext>`.
+
+### Uploading Card Files (`/card import`)
+```
+/card import file:<attachment> [file2:<attachment>] [file3:<attachment>] [file4:<attachment>] [file5:<attachment>] [mode:merge|replace]
+```
+* **Multiple Files Supported**: Attach up to 5 card files (`file`, `file2`, `file3`, `file4`, `file5`) in a single command.
+* **Accepts Unmarked Format**:
+  * If an uploaded file is in legacy or unmarked format (missing `issuedAt`, creation dates, or timestamps), the bot **automatically detects it and stamps it with the current date and time**, computes the 2-month expiration date, and activates the proactive reminder sentinel.
+  * If a card already has timestamps, the original dates are preserved.
+* **Permanent Storage Onwards**:
+  * Persisted directly to `data/cards.json` with synchronous atomic flush.
+  * Raw uploaded files are archived permanently into `data/backups/import_<guildId>_<timestamp>_<filename>`.
+* **Modes**:
+  * `merge` (Default): Updates existing cards and appends new ones.
+  * `replace`: Clears the server's previous records before importing.
 
 ---
 
-## 4. Staff Review & Instant Direct Message (DM) Notification
+## 5. 2-Month Expiration & Automated Proactive DMs
 
-When an applicant submits `/card generate` (via interactive modal form or direct slash command), an interactive review ticket is posted to the designated `staff_channel`:
+All issued and imported UOI Citizen ID cards follow a strict **2-Month Validity Policy**.
+
+### Automated Expiration Sentinel Intervals
+The bot continuously monitors all registered cards in the background and automatically sends proactive Direct Messages (DMs) to cardholders at all four specified intervals:
+
+1. **10 Days Prior (`d10`)**: Initial courtesy notice that card will expire in 10 days.
+2. **5 Days Prior (`d5`)**: Reminder notice with days remaining and renewal guidance.
+3. **3 Days Prior (`d3`)**: Urgent warning notice detailing steps to renew.
+4. **1 Day Prior (`d1`)**: Final 24-hour notice alerting citizen of imminent credential expiration.
+5. **0 Days / Expiration Moment (`expired`)**: Official notice that the card has expired, updating card status to `EXPIRED` until renewed via `/card refresh` or `/card apply`.
+
+Each DM contains:
+* Full Citizen Name & unique Serial ID.
+* Server Name where card was issued.
+* Issue Date & exact Expiration Timestamp (`<t:unix:F>`).
+* Actionable renewal instructions.
+* Anti-spam tracking: each alert interval is only sent once per cycle.
+
+---
+
+## 6. Staff Review & Instant Direct Message (DM) Notification
+
+When an applicant submits `/card generate`, an interactive review ticket is posted to the designated `staff_channel`:
 
 ### Staff Action Buttons:
 1. **[✅ Accept & Issue Card]**:
-   * Stamps the card onto the server's official template with photo, rank, barcode, and QR code.
-   * Auto-renames citizen to `FullName [UOI-Serial-ID]` (if `auto_nickname` is enabled).
-   * Automatically grants the configured verified citizen role (e.g. `@Citizen`).
-   * Broadcasts the card to the public `delivery_channel` (if configured).
-   * 📬 **Automatic Direct Message (DM) Notification**: The bot immediately sends a private DM directly to the citizen containing:
-     * A celebratory acceptance notification from the specific Discord server.
-     * Their full legal name, permanent Serial ID, and scanned rank tier.
-     * The high-resolution PNG image of their official ID card attached for instant download.
-     * Guidance on using `/card show` and `/card refresh`.
-   * The reviewing officer receives immediate confirmation that the DM was delivered (with graceful handling if the user's DMs are closed).
+   * Stamps card onto official server template with photo, rank, barcode, QR code, and 2-month validity (`VALID THRU`).
+   * Automatically assigns server nickname: `FullName [UOI-Serial-ID]`.
+   * Automatically grants verified role (e.g. `@Citizen`).
+   * Broadcasts card to public `delivery_channel` with expiration timestamp.
+   * 📬 **Automatic Direct Message (DM) Notification**: Instantly DMs the citizen with:
+     * Official approval message from the server.
+     * Full legal name, permanent Serial ID, and scanned rank tier.
+     * High-resolution PNG image of their official ID card attached.
+     * Explicit 2-month validity window with notification schedule.
 2. **[❌ Decline with Reason]**:
-   * Opens an interactive modal prompting the officer to provide a specific rejection explanation.
-   * Updates the review ticket to `DECLINED` and logs the reason.
-   * 📬 **Direct Message (DM) Notification**: The bot sends a DM notifying the user that their application was declined and detailing the exact reason specified by the officer so they can correct it and re-apply.
+   * Prompts the officer for a specific rejection reason.
+   * 📬 **Direct Message (DM) Notification**: Immediately DMs the user detailing the exact reason specified by staff so they can rectify and reapply.
 
 ---
 
-The bot runs an active web service on port 3000:
+## 7. Automated 48-Hour Card Application Expiry Sentinel
 
-* **Public Verification Dossier Page**:
-  * Visit `/verify?serial=UOI-2026-XXXXXX` or scan the dynamic QR code on any issued card to inspect the real-time hologram verification page and validity certificate.
-* **In-Game Roblox `HttpService` REST API**:
-  * `GET /api/v1/verify?serial=UOI-2026-XXXXXX`
-  * `GET /api/v1/verify?robloxId=12345678`
-  * Returns JSON payload: `{ success: true, verified: true, card: { serialId, fullName, robloxUsername, assignedRank, division, clearanceLevel, status } }`.
+To prevent applications from hanging or bugging when staff queues are busy or inactive, all pending applications enforce an automatic expiration timeout.
+
+### Standard Review Window (Default: 48 Hours / Configurable)
+* **Creation Timestamping**: When an application is submitted via `/card apply`, `/card generate`, or modal form (`card_modal_apply`), the bot records `submittedAt`, `expiresAt` (default: 48 hours), and `expiresAtTimestamp`.
+* **Live Expiration Countdowns**:
+  * **Staff Review Embed**: Displays `⏳ Application Expiry: <t:unix:R> (<t:unix:f>)`.
+  * **Applicant Confirmation Embed**: Displays `⏳ Review Timeout Window: <t:unix:R> (Auto-expires if unreviewed)`.
+* **Configurable in `/card setup`**:
+  * Administrators can customize the review timeout window using the optional `application_expiry_hours` option (range: 1 to 336 hours / default: 48).
+
+### Automated Resolution & Unblocking
+1. **Auto-Unblock on Reapplication**:
+   * If an applicant runs `/card apply` or `/card generate` and has an existing pending application that has exceeded its review window, the bot **automatically transitions the stale request to `EXPIRED`** and allows the new application to proceed immediately.
+   * Citizens are never blocked or stuck permanently because of an old unreviewed ticket.
+2. **Review Button Guarding**:
+   * Clicking `[✅ Accept & Issue Card]` or `[❌ Decline with Reason]` on an expired ticket rejects the action cleanly with an ephemeral notice informing the officer that the 48-hour review window elapsed.
+   * Automatically edits the staff message to deactivate the buttons and labels them `⏰ Application Expired (48h Timeout)`.
+3. **Background Auto-Sweep & Proactive DM**:
+   * An automated background sentinel sweeps the pending queue every 30 minutes (and on bot startup).
+   * Stale applications are transitioned to `EXPIRED`, staff review buttons are deactivated, and the applicant receives a courtesy Direct Message (DM) informing them of the expiration and inviting them to reapply freely.
 
 ---
 
-## 6. Owner-Only Maintenance Commands
+## 8. Public Web Dossier & Roblox REST API
 
-The following commands are restricted to the **Server Owner** and **Bot Developer**:
-
-| Command | Function |
-|---|---|
-| `/card git-status` | Displays active Git commit hash, auto-sync polling frequency, and webhook endpoint. |
-| `/card git-sync` | Performs an automated Git pull from the remote repository and gracefully reboots the bot. |
-| `/card memory` | Displays multi-server persistence status, active guild setups, and backup integrity metrics. |
+The bot runs an integrated HTTP verification service on port 3000:
+* **Web Dossier**: Visit `/verify?serial=UOI-2026-XXXXXX` or scan the QR code on any card.
+* **In-Game Roblox API**: `GET /api/v1/verify?serial=UOI-2026-XXXXXX` or `GET /api/v1/verify?robloxId=12345678`.
 
 ---
 
-## 6. Styling the Bot Display Name
+## 8. Bot Display Name Styling
 
-Customize the bot's visual branding in your server:
 ```
 /card botstyle font:10 effect:2 color:tiranga
 ```
-* **Font 10 (Sinistre)**: High-impact stylistic lettering.
+* **Font 10 (Sinistre)**: Gothic / stylistic lettering.
 * **Effect 2 (Gradient)**: Smooth multi-stop gradient.
-* **Color Schemes**: `tiranga` (Saffron, White, Emerald Green), `cyan`, `saffron`, or `emerald`.
+* **Colors**: `tiranga` (Dark Orange & Dark Green Tiranga gradient), `cyan`, `saffron`, `emerald`.
+* **Server Role Color Sync**: Automatically synchronizes the bot's highest editable role color so its name is colored in chat and member sidebars for all users.

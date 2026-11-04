@@ -1,7 +1,7 @@
 # Union of Indians (UOI) ID Card Bot — System Architecture & Specification
 
 ## 1. Executive Overview
-The **Union of Indians (UOI) ID Card Data Processor** is an enterprise-grade Discord bot and web management platform designed for the Roblox UOI community. It provides automated citizen card issuance, real-time Roblox profile and 3D avatar verification, staff approval workflows, custom per-server template rendering with high-resolution canvas engines, and a resilient multi-server permanent memory system.
+The **Union of Indians (UOI) ID Card Data Processor** is an enterprise-grade Discord bot and web management platform designed for the Roblox UOI community. It provides automated citizen card issuance, real-time Roblox profile and 3D avatar verification, staff approval workflows, custom per-server template rendering with high-resolution canvas engines, resilient multi-server permanent memory, permanent backup snapshotting, and proactive 2-month lifecycle management.
 
 ---
 
@@ -10,23 +10,24 @@ The **Union of Indians (UOI) ID Card Data Processor** is an enterprise-grade Dis
 ```
 +-----------------------------------------------------------------------------------+
 |                                  DISCORD CLIENT                                   |
-|   /card generate, /card setup, /card set-template, Buttons (Approve / Reject)    |
+|   /card generate, /card setup, /card export, /card import, Buttons, Modals        |
 +-----------------------------------------------------------------------------------+
                                          |
                                          v
 +-----------------------------------------------------------------------------------+
 |                        DISCORD.JS INTERACTION ROUTER                              |
-|           • RBAC Permission Validator (Owner, Admin, Staff, Citizen)              |
-|           • Input Sanitization & Option Parsing                                   |
+|           • RBAC Validator: Owner/Admin Guard (checkIsOwnerOrAdmin)               |
+|           • Staff Review Guard (checkIsStaffOrAdmin)                              |
+|           • Input Sanitization & Multi-Attachment Parsing                         |
 +-----------------------------------------------------------------------------------+
        |                                      |                                |
        v                                      v                                v
 +------------------+             +-----------------------+           +------------------+
 |  ROBLOX DETECT   |             |   DATABASE / MEMORY   |           | TEMPLATE MANAGER |
-| • Username query |             | • server_memory.json  |           | • Per-Guild PNG  |
-| • Bloxlink API   |             | • Atomic Write Swap   |           | • Resolution Fix |
-| • RoVer API      |             | • guild setups        |           | • Layer Caching  |
-| • 3D Headshot CDN|             | • cards & pendingReqs |           | • Fallback Mgmt  |
+| • Username query |             | • cards.json (store)  |           | • Per-Guild PNG  |
+| • Bloxlink API   |             | • backups/ (archive)  |           | • Resolution Fix |
+| • RoVer API      |             | • server_memory.json  |           | • Layer Caching  |
+| • 3D Headshot CDN|             | • Atomic Write Swap   |           | • Fallback Mgmt  |
 +------------------+             +-----------------------+           +------------------+
        \                                      |                                /
         --------------------------------------+--------------------------------
@@ -36,64 +37,85 @@ The **Union of Indians (UOI) ID Card Data Processor** is an enterprise-grade Dis
 |                       GRAPHICS & CANVAS RENDERING ENGINE                          |
 |         • Engine: @napi-rs/canvas (High-performance Rust / Skia backend)          |
 |         • Code 128 Barcode generation (bwip-js)                                  |
-|         • Dynamic Text Fitting, Tiranga gradients, Watermarks, Badges             |
+|         • Dynamic Text Fitting, 2-Month Expiry Stamping, Security Bands           |
 +-----------------------------------------------------------------------------------+
                                          |
                                          v
 +-----------------------------------------------------------------------------------+
-|                           DISPATCH & DELIVERY LAYER                               |
-|         • Ephemeral Staff Review embeds with Approve / Reject action buttons      |
-|         • Direct Citizen DM & Designated Server Delivery Channel Announcements     |
-|         • Automated Server Nickname Synchronizer: "FullName [SerialId]"           |
+|                           DISPATCH & SENTINEL LAYER                               |
+|         • Proactive Expiration Sentinel (10, 5, 3, 1 Days Prior DMs)             |
+|         • Approval / Decline Direct Message (DM) Dispatcher with Graphic          |
+|         • Designated Delivery Channel Announcements & Auto-Nickname Sync          |
 +-----------------------------------------------------------------------------------+
 ```
 
 ---
 
-## 3. Storage & Memory Subsystems
+## 3. Storage, Backup & Archival Subsystems
 
-### 3.1 Persistent Server Memory & Multi-Server Card Isolation
-The bot implements strict multi-tenant server isolation:
-* **Per-Server Card Registries**: Cards, citizenship dossiers, and ranks are completely isolated per server (`guildId`). A user's card issued in Server A is scoped solely to Server A (`db.serverCards[guildId][userId]`). When they join Server B, they have no card in Server B until approved by Server B's officers.
-* **Per-Server Roles & Templates**: Cards render exclusively with that specific server's scanned Discord roles and that server's uploaded template (`templates/<GuildID>.png`).
-* **Guild Configuration**: Staff review channel ID, delivery channel ID, verified role ID, audit channel ID, auto-nickname toggle.
-* **Atomic File Swapping**: Memory and cards writes execute via temporary buffer write (`.tmp`) followed by atomic rename (`fs.renameSync`) to ensure zero database corruption during container restarts or crash events.
-* **Automated Redundant Backups**: Maintained at `data/server_memory.backup.json`.
+### 3.1 Primary Persistent Database (`data/cards.json`)
+The bot maintains all citizen records in an atomic, partitioned store:
+* `db.cards[`${guildId}_${userId}`]`: Composite key for instantaneous indexed lookups.
+* `db.serverCards[guildId][userId]`: Isolated per-server partition ensuring no cross-server leakage.
+* `db.serToUser[serialId]`: Global serial index mapping serials to server contexts.
+* **Atomic File Swapping**: Every write executes via temporary buffer write (`.tmp`) followed by atomic rename (`fs.renameSync`) to ensure zero database corruption during container restarts or crash events.
 
-### 3.2 Isolated Template Memory (`templates/`)
-* Each Discord guild is assigned an isolated custom template file: `templates/<GuildID>.png`.
-* When an administrator uploads a custom badge template using `/card set-template`, the template is processed, validated, and saved specifically for that server ID.
-* If no custom template is uploaded, the bot falls back to the default official template (`template.png`).
-
----
-
-## 4. Role-Based Access Control (RBAC) Specification
-
-| Tier | Role / Entity | Capabilities & Allowed Commands |
-|---|---|---|
-| **Tier 1: Owner** | • Server Owner (`guild.ownerId`)<br>• Bot Developer Application Owner<br>• Configured `OWNER_ID` in `.env` | • `/card git-sync` (Git remote pull + graceful restart)<br>• `/card git-status` (Commit hash, branch & webhook info)<br>• `/card memory` (Inspect permanent storage & setups)<br>• All Tier 2 & Tier 3 commands |
-| **Tier 2: Staff / Admin** | • Server Administrators<br>• `Manage Server` permission<br>• Role designated via `staff_role` | • `/card setup` (Configure review/delivery channels)<br>• `/card set-template` (Upload or reset template with `reset:True`)<br>• `/card export` (Bulk CSV/JSON registry export)<br>• `/card promote` (Grant rank advancements)<br>• `/card revoke` (Revoke and blacklist citizen IDs)<br>• `/card botstyle` (Modify bot display typography/colors)<br>• Review Action Buttons (Approve/Reject requests) |
-| **Tier 3: Citizens** | • All Discord Members | • `/card generate` (Apply via modal form or direct slash options)<br>• `/card show` (Display citizen card, server-specific flag, and dossier)<br>• `/card refresh` (Self-service avatar & role resync)<br>• `/card verify` (Verify barcode/serial validity)<br>• `/card whois` (Look up linked Roblox identity & avatar)<br>• `/card link` / `/card unlink` (Link personal Roblox account)<br>• `/card view-template` (View server active template) |
+### 3.2 Permanent Archival Storage (`data/backups/`)
+Every card file export or import triggers an automatic, immutable backup copy:
+* **Import Archival**: Raw uploaded files are archived permanently into `data/backups/import_<guildId>_<timestamp>_<filename>`.
+* **Export Archival**: Every database export creates an immutable copy in `data/backups/export_<guildId>_<timestamp>.<ext>`.
+* Ensures that historical files and records can never be lost.
 
 ---
 
-## 5. Canvas Card Generation Engine
+## 4. File Download & Upload Engine (`/card export` & `/card import`)
 
-1. **Resolution & Dimensions**:
-   * Base Canvas: 1200 x 900 pixels high-definition canvas.
-2. **Dynamic Elements**:
-   * **Roblox 3D Avatar**: High-res circular or rounded headshot retrieved from Roblox Thumbnails CDN (`337 x 344 px`).
-   * **Typography**: Clean hierarchy displaying Full Name, Roblox Username, User ID, Gender, and Assigned Rank Tier.
-   * **Security Clearance Level**: Automatically computed five-tier accreditation (*Level I: General Citizen* to *Level V: Union Directorate*).
-   * **Government Division**: e.g. *Civilian Directorate*, *Armed Forces*, *Homeland Security & Border Corps*.
-   * **Issuance & Expiry Dates**: Formatted dynamic issue date (`22 OCT 2026`) and two-year validity stamp (`VALID THRU: OCT 2028`).
-   * **Dual Scannable Verification**:
-     * **Code 128 Barcode**: Generated dynamically via `bwip-js` encoding the unique serial ID (`UOI-YYYY-XXXXXX`).
-     * **Real-time Verification QR Code**: Encoded with live web verification URL (`https://uoi-gov.in/verify?serial=UOI-2026-XXXXXX`).
-   * **Anti-Tamper Security Microtext Band**: High-precision microtext line rendered along the canvas bottom border.
-3. **Automated Server Integrations**:
-   * **Auto-Role Assignee**: Automatically assigns the configured `@Citizen` role to members on card approval.
-   * **Security Audit Trail**: Dispatches audit events (`CARD_ISSUED`, `CARD_REVOKED`, `CARD_PROMOTED`) to `#card-logs`.
-   * **Live Web Verification Portal & API**:
-     * `/verify/:serialId`: Holographic web dossier for scanned cards.
-     * `/api/v1/verify`: JSON verification API for Roblox Lua `HttpService` in-game scripting.
+### 4.1 Export / Download Engine
+* **Access Control**: Strictly restricted to the **Server Owner** or members with the **Administrator** permission (`checkIsOwnerOrAdmin`).
+* **Formats**: JSON database dumps and CSV spreadsheets (compatible with Excel & Google Sheets).
+* **Scope**: Per-server or network-wide central registry export.
+* **Timestamp Stamping**: Every card exported contains complete creation date/time (`issuedAt` in ISO & human-readable UTC), 2-month expiration date (`expiresAt`), `daysRemaining`, clearance, division, and rank.
+
+### 4.2 Multi-File Import Engine
+* **Access Control**: Strictly restricted to the **Server Owner** or members with the **Administrator** permission.
+* **Multiple Attachments**: Allows uploading up to 5 files in a single execution (`file`, `file2`, `file3`, `file4`, `file5`).
+* **Unmarked Format Detection**:
+  * If an uploaded file is in an unmarked or legacy format (lacking creation date, timestamp, or expiration fields), the parser flags it as unmarked.
+  * The engine **automatically marks and stamps the card with the current date/time**, calculates the 2-month expiration date, and initializes the reminder sentinel.
+* **Marked Format Preservation**:
+  * If a card already contains valid timestamps, original dates are preserved.
+* **Modes**:
+  * `merge` (Default): Adds new cards and updates existing records.
+  * `replace`: Clears the server's previous records before importing.
+
+---
+
+## 5. 2-Month Lifecycle Sentinel & Automated Proactive DMs
+
+All issued and imported UOI Citizen ID cards adhere to a strict **2-Month Validity Policy**.
+
+### 5.1 Expiration Mathematics
+$$\text{expiresAt} = \text{issuedAt} + 2\text{ months}$$
+Calculated accurately using calendar month advancement (`date.setMonth(date.getMonth() + 2)`).
+
+### 5.2 Multi-Interval DM Dispatcher
+The background sentinel runs every 30 minutes (and on bot startup):
+1. **10 Days Prior (`d10`)**: Initial notice alerting the citizen of upcoming expiration.
+2. **5 Days Prior (`d5`)**: Follow-up reminder with days remaining.
+3. **3 Days Prior (`d3`)**: Urgent warning detailing renewal steps.
+4. **1 Day Prior (`d1`)**: Final 24-hour notice before expiration.
+5. **0 Days / Expiration Moment (`expired`)**: Official notice that the card has expired, updating status to `EXPIRED`.
+
+Each notification includes:
+* Citizen name, unique Serial ID, and server context.
+* Formatted Discord timestamp of expiration: `<t:unix:F> (<t:unix:R>)`.
+* Actionable instructions for self-renewal via `/card refresh`.
+* Anti-spam tracking: each reminder flag (`d10`, `d5`, `d3`, `d1`, `expired`) is recorded in the card record so users are never spammed twice for the same threshold.
+
+---
+
+## 6. Staff Review & Decision Notifications
+
+* **Interactive Buttons**: Officers can click **[✅ Accept & Issue Card]** or **[❌ Decline with Reason]**.
+* **Direct Message (DM) on Approval**: Automatically sends a private DM to the citizen with their card graphic attached, serial ID, and 2-month validity details.
+* **Direct Message (DM) on Decline**: Automatically sends a private DM containing the reviewing officer's exact explanation.
