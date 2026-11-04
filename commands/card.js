@@ -318,6 +318,398 @@ export function savePermanentSnapshot(prefix, name, content) {
   }
 }
 
+// ========================================================
+// VISUAL STYLING REGISTRY: EXPANDED EFFECTS & COLOR THEMES
+// ========================================================
+export const BOT_STYLE_EFFECTS = {
+  1: { id: 1, name: 'Solid Flat Color', emoji: '⬛', description: 'Clean monochromatic solid color tone' },
+  2: { id: 2, name: 'Two-Tone Linear Gradient', emoji: '🌈', description: 'Smooth two-color dynamic linear transition [Default]' },
+  3: { id: 3, name: 'Electric Neon Glow', emoji: '⚡', description: 'High-intensity neon luminescence & glow' },
+  4: { id: 4, name: 'Toon Pop Outline', emoji: '🎨', description: 'Bold comic-style accent contour outline' },
+  5: { id: 5, name: '3D Pop Drop-Shadow', emoji: '💥', description: 'Dimensional pop shadow with elevated contrast' },
+  6: { id: 6, name: 'Holographic Prismatic Shimmer', emoji: '🔮', description: 'Prismatic diffraction shimmer effect' },
+  7: { id: 7, name: 'Cyberpunk Pulse & Glitch', emoji: '⚡', description: 'Futuristic cyberpunk neon pulse and edge aura' },
+  8: { id: 8, name: 'Velvet Luxe Radiance', emoji: '✨', description: 'Warm luxury ambient glow and rich saturation' },
+  9: { id: 9, name: 'Radial Sunburst Flare', emoji: '☀️', description: 'Vibrant radial flare centered outward' },
+};
+
+export const BOT_STYLE_COLORS = {
+  tiranga: {
+    name: '🇮🇳 Indian Tricolor',
+    label: 'Dark Orange & Forest Green',
+    colors: [0xd95700, 0x0d652d],
+    hex: ['#D95700', '#0D652D'],
+    primaryHex: '#D95700',
+    description: 'National Tiranga saffron & dark forest green gradient',
+  },
+  ashoka_navy: {
+    name: '🇮🇳 Ashoka Royal Navy',
+    label: 'Navy Blue & Saffron',
+    colors: [0x000080, 0xff671f],
+    hex: ['#000080', '#FF671F'],
+    primaryHex: '#000080',
+    description: 'Ashoka Chakra deep navy & bright saffron',
+  },
+  cyber_cyan: {
+    name: '⚡ Cyberpunk Neon',
+    label: 'Electric Cyan & Neon Blue',
+    colors: [0x00f0ff, 0x3b82f6],
+    hex: ['#00F0FF', '#3B82F6'],
+    primaryHex: '#00F0FF',
+    description: 'High-voltage electric cyan & neon blue glow',
+  },
+  imperial_gold: {
+    name: '👑 Imperial Gold',
+    label: 'Warm Gold & Rich Amber',
+    colors: [0xf59e0b, 0xb45309],
+    hex: ['#F59E0B', '#B45309'],
+    primaryHex: '#F59E0B',
+    description: 'Prestige executive gold & deep amber',
+  },
+  blood_crimson: {
+    name: '🩸 Blood Crimson',
+    label: 'Crimson Red & Dark Scarlet',
+    colors: [0xef4444, 0x991b1b],
+    hex: ['#EF4444', '#991B1B'],
+    primaryHex: '#EF4444',
+    description: 'High-security warning red & deep scarlet',
+  },
+  emerald_forest: {
+    name: '🌿 Deep Emerald',
+    label: 'Forest Green & Jade Mint',
+    colors: [0x0d652d, 0x10b981],
+    hex: ['#0D652D', '#10B981'],
+    primaryHex: '#0D652D',
+    description: 'Lush dark forest green & jade mint',
+  },
+  royal_purple: {
+    name: '🔮 Royal Amethyst',
+    label: 'Amethyst & Cosmic Violet',
+    colors: [0x8b5cf6, 0x6d28d9],
+    hex: ['#8B5CF6', '#6D28D9'],
+    primaryHex: '#8B5CF6',
+    description: 'Royal sovereign violet & deep purple',
+  },
+  sunset_blaze: {
+    name: '🌅 Sunset Blaze',
+    label: 'Solar Orange & Coral Flame',
+    colors: [0xf97316, 0xf43f5e],
+    hex: ['#F97316', '#F43F5E'],
+    primaryHex: '#F97316',
+    description: 'Radiant tropical sunset orange & coral flame',
+  },
+  toxic_matrix: {
+    name: '☣️ Toxic Acid Matrix',
+    label: 'Acid Lime & Terminal Green',
+    colors: [0x84cc16, 0x22c55e],
+    hex: ['#84CC16', '#22C55E'],
+    primaryHex: '#84CC16',
+    description: 'Bio-hazard radioactive lime & matrix console green',
+  },
+  midnight_sapphire: {
+    name: '🌌 Midnight Sapphire',
+    label: 'Deep Sapphire & Dark Cobalt',
+    colors: [0x2563eb, 0x1e1b4b],
+    hex: ['#2563EB', '#1E1B4B'],
+    primaryHex: '#2563EB',
+    description: 'Deep celestial sapphire blue & space cobalt',
+  },
+  sakura_blossom: {
+    name: '🌸 Sakura Blossom',
+    label: 'Sakura Pink & Cotton Rose',
+    colors: [0xec4899, 0xf472b6],
+    hex: ['#EC4899', '#F472B6'],
+    primaryHex: '#EC4899',
+    description: 'Delicate Japanese cherry blossom pink',
+  },
+  obsidian_stealth: {
+    name: '🖤 Obsidian Stealth',
+    label: 'Obsidian Black & Dark Slate',
+    colors: [0x334155, 0x0f172a],
+    hex: ['#334155', '#0F172A'],
+    primaryHex: '#334155',
+    description: 'Tactical covert ops matte slate & dark obsidian',
+  },
+  arctic_glacier: {
+    name: '❄️ Arctic Glacier',
+    label: 'Glacier Cyan & Frost Silver',
+    colors: [0x06b6d4, 0xe2e8f0],
+    hex: ['#06B6D4', '#E2E8F0'],
+    primaryHex: '#06B6D4',
+    description: 'Sub-zero glacial cyan & polar frost',
+  },
+  plasma_fire: {
+    name: '🔥 Plasma Fire',
+    label: 'Molten Lava & Sunfire Orange',
+    colors: [0xff5722, 0xffc107],
+    hex: ['#FF5722', '#FFC107'],
+    primaryHex: '#FF5722',
+    description: 'Superheated molten plasma & solar flare',
+  },
+  synthwave_neon: {
+    name: '🌆 Synthwave Neon',
+    label: 'Hot Magenta & Electric Violet',
+    colors: [0xd946ef, 0x8b5cf6],
+    hex: ['#D946EF', '#8B5CF6'],
+    primaryHex: '#D946EF',
+    description: 'Retro 80s outrun magenta & electric violet',
+  },
+  bronze_copper: {
+    name: '🛡️ Antique Bronze',
+    label: 'Warm Bronze & Burnished Copper',
+    colors: [0xd97706, 0x78350f],
+    hex: ['#D97706', '#78350F'],
+    primaryHex: '#D97706',
+    description: 'Ancient veteran medal bronze & weathered copper',
+  },
+  aurora_teal: {
+    name: '🌌 Aurora Borealis',
+    label: 'Northern Teal & Cosmic Indigo',
+    colors: [0x14b8a6, 0x6366f1],
+    hex: ['#14B8A6', '#6366F1'],
+    primaryHex: '#14B8A6',
+    description: 'Mystical polar aurora teal & twilight indigo',
+  },
+  velvet_wine: {
+    name: '🍷 Velvet Wine',
+    label: 'Velvet Ruby & Deep Maroon',
+    colors: [0xe11d48, 0x881337],
+    hex: ['#E11D48', '#881337'],
+    primaryHex: '#E11D48',
+    description: 'Imperial velvet ruby red & rich burgundy',
+  },
+  uoi_cyan: {
+    name: '💠 UOI Signature Cyan',
+    label: 'UOI Cyan & Deep Sky',
+    colors: [0x38bdf8, 0x0284c7],
+    hex: ['#38BDF8', '#0284C7'],
+    primaryHex: '#38BDF8',
+    description: 'Official Union of Indians government cyan brand',
+  },
+  solar_yellow: {
+    name: '☀️ Solar Flare',
+    label: 'Electric Yellow & Saffron Gold',
+    colors: [0xeab308, 0xea580c],
+    hex: ['#EAB308', '#EA580C'],
+    primaryHex: '#EAB308',
+    description: 'Luminous radiant solar yellow & deep saffron',
+  },
+  deep_nebula: {
+    name: '🚀 Deep Nebula',
+    label: 'Nebula Purple & Starlight Blue',
+    colors: [0x6366f1, 0xa855f7],
+    hex: ['#6366F1', '#A855F7'],
+    primaryHex: '#6366F1',
+    description: 'Deep interstellar cosmic nebula glow',
+  },
+  platinum_ghost: {
+    name: '👻 Platinum Ghost',
+    label: 'Ghost Platinum & Polished Silver',
+    colors: [0xcbd5e1, 0x64748b],
+    hex: ['#CBD5E1', '#64748B'],
+    primaryHex: '#CBD5E1',
+    description: 'Sleek aerospace platinum & polished silver slate',
+  },
+  ruby_rose: {
+    name: '🌹 Ruby Rose',
+    label: 'Bright Rose & Vivid Berry',
+    colors: [0xfb7185, 0xbe123c],
+    hex: ['#FB7185', '#BE123C'],
+    primaryHex: '#FB7185',
+    description: 'Romantic ruby blossom rose & berry',
+  },
+  ocean_lagoon: {
+    name: '🌊 Ocean Lagoon',
+    label: 'Tropical Turquoise & Sea Blue',
+    colors: [0x0284c7, 0x2dd4bf],
+    hex: ['#0284C7', '#2DD4BF'],
+    primaryHex: '#0284C7',
+    description: 'Crisp tropical ocean turquoise & seafoam',
+  },
+  golden_hour: {
+    name: '✨ Golden Hour',
+    label: 'Sunburst Gold & Sunset Amber',
+    colors: [0xf59e0b, 0xf97316],
+    hex: ['#F59E0B', '#F97316'],
+    primaryHex: '#F59E0B',
+    description: 'Warm cinematic sunset golden hour illumination',
+  },
+};
+
+/**
+ * Resolves bot styling colors with support for pre-set themes and custom hex colors
+ */
+export function resolveBotStyleColors(colorChoice = 'tiranga', customHex1 = null, customHex2 = null) {
+  // 1. If user provided custom primary hex
+  if (customHex1 && typeof customHex1 === 'string') {
+    const cleanHex1 = customHex1.trim().replace(/^#/, '');
+    if (/^[0-9a-fA-F]{6}$/.test(cleanHex1)) {
+      const num1 = parseInt(cleanHex1, 16);
+      let num2 = num1;
+      let cleanHex2 = cleanHex1;
+
+      if (customHex2 && typeof customHex2 === 'string') {
+        const c2 = customHex2.trim().replace(/^#/, '');
+        if (/^[0-9a-fA-F]{6}$/.test(c2)) {
+          num2 = parseInt(c2, 16);
+          cleanHex2 = c2;
+        }
+      }
+
+      return {
+        themeKey: 'custom',
+        themeName: `Custom Palette (#${cleanHex1.toUpperCase()}${cleanHex2 !== cleanHex1 ? ` & #${cleanHex2.toUpperCase()}` : ''})`,
+        colors: [num1, num2],
+        hex: [`#${cleanHex1.toUpperCase()}`, `#${cleanHex2.toUpperCase()}`],
+        primaryHex: `#${cleanHex1.toUpperCase()}`,
+        isCustom: true,
+        description: 'Bespoke custom hex color palette',
+      };
+    }
+  }
+
+  // 2. Pre-set theme lookup
+  const key = String(colorChoice || 'tiranga').toLowerCase().trim();
+  const theme = BOT_STYLE_COLORS[key] || BOT_STYLE_COLORS['tiranga'];
+  return {
+    themeKey: key in BOT_STYLE_COLORS ? key : 'tiranga',
+    themeName: theme.name,
+    colors: [...theme.colors],
+    hex: [...theme.hex],
+    primaryHex: theme.primaryHex,
+    isCustom: false,
+    description: theme.description,
+  };
+}
+
+/**
+ * Card Visual Accent Themes
+ */
+export const CARD_VISUAL_THEMES = {
+  gold: { key: 'gold', name: 'Imperial Gold', primary: '#F59E0B', secondary: '#B45309', border: '#F59E0B' },
+  cyan: { key: 'cyan', name: 'UOI Cyan', primary: '#38BDF8', secondary: '#0284C7', border: '#38BDF8' },
+  crimson: { key: 'crimson', name: 'Blood Crimson', primary: '#EF4444', secondary: '#991B1B', border: '#EF4444' },
+  emerald: { key: 'emerald', name: 'Forest Emerald', primary: '#10B981', secondary: '#0D652D', border: '#10B981' },
+  purple: { key: 'purple', name: 'Royal Amethyst', primary: '#8B5CF6', secondary: '#6D28D9', border: '#8B5CF6' },
+  cyber: { key: 'cyber', name: 'Cyberpunk Neon', primary: '#00F0FF', secondary: '#3B82F6', border: '#00F0FF' },
+  matrix: { key: 'matrix', name: 'Toxic Matrix', primary: '#22C55E', secondary: '#84CC16', border: '#22C55E' },
+  sunset: { key: 'sunset', name: 'Sunset Blaze', primary: '#F97316', secondary: '#F43F5E', border: '#F97316' },
+  sakura: { key: 'sakura', name: 'Sakura Blossom', primary: '#EC4899', secondary: '#F472B6', border: '#EC4899' },
+  stealth: { key: 'stealth', name: 'Obsidian Stealth', primary: '#64748B', secondary: '#0F172A', border: '#64748B' },
+};
+
+/**
+ * Card Visual Effects
+ */
+export const CARD_VISUAL_EFFECTS = {
+  standard: { key: 'standard', name: 'Clean Standard', description: 'Official clean high-contrast blueprint layout' },
+  holographic: { key: 'holographic', name: 'Prismatic Hologram', description: 'Prismatic diffraction foil & security guilloche curves' },
+  gold_embossed: { key: 'gold_embossed', name: 'Gold Foil Embossed', description: 'Dual metallic gold borders with beveled corner crests' },
+  stealth: { key: 'stealth', name: 'Night-Vision Stealth', description: 'Matte dark tactical border with muted monochrome tones' },
+};
+
+/**
+ * Resolves card accent colors and effects
+ */
+export function resolveCardVisualTheme(themeKey = null, effectKey = null) {
+  const tKey = String(themeKey || 'gold').toLowerCase().trim();
+  const theme = CARD_VISUAL_THEMES[tKey] || CARD_VISUAL_THEMES['gold'];
+
+  const eKey = String(effectKey || 'standard').toLowerCase().trim();
+  const effect = CARD_VISUAL_EFFECTS[eKey] || CARD_VISUAL_EFFECTS['standard'];
+
+  return { theme, effect };
+}
+
+/**
+ * Applies visual bot styling (font, effect, colors) to a Discord guild.
+ * Updates Discord member profile through REST and ensures the bot's server role
+ * is colored so its username is vibrantly colored in chat, sidebars, and profile popups.
+ */
+export async function applyBotStyleToGuild(guild, rest, botStyleConfig = null, clientUser = null) {
+  if (!guild) return { success: false, error: 'Guild required' };
+
+  const style = botStyleConfig || {
+    fontId: 10,
+    effectId: 2,
+    colors: [0xd95700, 0x0d652d],
+  };
+
+  const fontId = style.fontId ?? 10;
+  const effectId = style.effectId ?? 2;
+  const colors = Array.isArray(style.colors) && style.colors.length > 0 ? style.colors : [0xd95700, 0x0d652d];
+  const primaryColor = colors[0];
+
+  let roleUpdated = false;
+  let roleName = null;
+  let restPatched = false;
+  let restError = null;
+
+  // 1. Update bot server role color for guaranteed chat & member list styling
+  try {
+    const botId = clientUser?.id || globalThis.__uoiBotClient?.user?.id;
+    const botMember = guild.members?.me || (botId ? await guild.members.fetch(botId).catch(() => null) : null);
+    if (botMember) {
+      let roleToColor = botMember.roles?.cache
+        ?.filter((r) => r.editable && r.id !== guild.id)
+        ?.sort((a, b) => b.position - a.position)
+        ?.first();
+
+      // If no editable role exists, attempt creating a cosmetic display role if bot has ManageRoles
+      if (!roleToColor && botMember.permissions?.has(PermissionFlagsBits.ManageRoles)) {
+        try {
+          roleToColor = guild.roles.cache.find((r) => r.name === 'UOI Bot Display' && r.editable);
+          if (!roleToColor) {
+            roleToColor = await guild.roles.create({
+              name: 'UOI Bot Display',
+              color: primaryColor,
+              reason: 'UOI Bot Display Name Color',
+            });
+          }
+          if (roleToColor && !botMember.roles.cache.has(roleToColor.id)) {
+            await botMember.roles.add(roleToColor);
+          }
+        } catch (_) {}
+      }
+
+      if (roleToColor) {
+        await roleToColor.setColor(primaryColor);
+        roleUpdated = true;
+        roleName = roleToColor.name;
+      }
+    }
+  } catch (roleErr) {
+    console.warn(`[UOI Bot] Notice setting role color in ${guild.name || guild.id}:`, roleErr.message);
+  }
+
+  // 2. Patch Discord member display name styling (Max 2 colors)
+  if (rest) {
+    try {
+      await rest.patch(`/guilds/${guild.id}/members/@me`, {
+        body: {
+          display_name_font_id: fontId,
+          display_name_effect_id: effectId,
+          display_name_colors: colors.slice(0, 2),
+        },
+      });
+      restPatched = true;
+    } catch (patchErr) {
+      restError = patchErr.message;
+    }
+  }
+
+  return {
+    success: roleUpdated || restPatched,
+    roleUpdated,
+    roleName,
+    restPatched,
+    restError,
+    fontId,
+    effectId,
+    colors,
+  };
+}
+
 /**
  * Computes exact 2-month card expiration date from issue date
  */
@@ -1049,10 +1441,14 @@ export async function renderCardImage({
   issuedOfficerTag = null,
   isServerSpecific = false,
   serverName = null,
+  theme = null,
+  effect = null,
 }) {
   if (!createCanvas || typeof createCanvas !== 'function') {
     return { buffer: null, usedTemplate: false, source: 'canvas-library-disabled' };
   }
+
+  const { theme: activeTheme, effect: activeEffect } = resolveCardVisualTheme(theme, effect);
 
   try {
     const canvas = createCanvas(1200, 900);
@@ -1077,7 +1473,7 @@ export async function renderCardImage({
 
       // Top-Right Serial ID
       ctx.save();
-      ctx.fillStyle = '#38BDF8';
+      ctx.fillStyle = activeTheme.primary || '#38BDF8';
       ctx.font = 'bold 14px "Nimbus Mono PS", "Liberation Mono", "Courier New", Courier, monospace';
       ctx.fillText(serialId, 1010, 36);
       ctx.restore();
@@ -1131,7 +1527,7 @@ export async function renderCardImage({
         ctx.rect(rankBoxX, rankBoxY, rankBoxW, rankBoxH);
       }
       ctx.fill();
-      ctx.strokeStyle = '#F59E0B';
+      ctx.strokeStyle = activeTheme.border || '#F59E0B';
       ctx.lineWidth = 2;
       ctx.stroke();
 
@@ -1202,8 +1598,8 @@ export async function renderCardImage({
             }
             ctx.fill();
 
-            // Gold border matching rank badge & UOI card styling
-            ctx.strokeStyle = '#F59E0B';
+            // Accent border matching selected card theme
+            ctx.strokeStyle = activeTheme.border || '#F59E0B';
             ctx.lineWidth = 1.5;
             ctx.stroke();
 
@@ -1240,11 +1636,11 @@ export async function renderCardImage({
 
       // Render Clearance, Division & Issue Dates on the right-hand identity panel
       ctx.save();
-      ctx.fillStyle = '#F59E0B';
+      ctx.fillStyle = activeTheme.primary || '#F59E0B';
       ctx.font = 'bold 13px "Liberation Sans", -apple-system, sans-serif';
       ctx.fillText(`CLEARANCE: ${clearance}`, fieldX + 18, 752);
 
-      ctx.fillStyle = '#38BDF8';
+      ctx.fillStyle = activeTheme.secondary || '#38BDF8';
       ctx.font = 'bold 12px "Liberation Sans", -apple-system, sans-serif';
       ctx.fillText(`DIVISION: ${effectiveDivision}`, fieldX + 18, 772);
 
@@ -1280,7 +1676,7 @@ export async function renderCardImage({
               ctx.rect(qrX, qrY, qrW, qrH);
             }
             ctx.fill();
-            ctx.strokeStyle = '#F59E0B';
+            ctx.strokeStyle = activeTheme.border || '#F59E0B';
             ctx.lineWidth = 1.5;
             ctx.stroke();
 
@@ -1414,6 +1810,48 @@ export async function renderCardImage({
           }
         }
       } catch (_) {}
+    }
+
+    // 9. Apply Selected Card Visual Security Effect (Holographic Foil, Gold Embossed, Stealth)
+    if (activeEffect.key === 'holographic') {
+      ctx.save();
+      const holoGrad = ctx.createLinearGradient(0, 0, 1200, 900);
+      holoGrad.addColorStop(0, 'rgba(255, 0, 128, 0.05)');
+      holoGrad.addColorStop(0.2, 'rgba(255, 215, 0, 0.07)');
+      holoGrad.addColorStop(0.4, 'rgba(0, 255, 200, 0.05)');
+      holoGrad.addColorStop(0.6, 'rgba(0, 150, 255, 0.07)');
+      holoGrad.addColorStop(0.8, 'rgba(180, 0, 255, 0.05)');
+      holoGrad.addColorStop(1, 'rgba(255, 100, 0, 0.05)');
+      ctx.fillStyle = holoGrad;
+      ctx.fillRect(0, 0, 1200, 900);
+
+      // Security fine guilloche curve watermark
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.04)';
+      ctx.lineWidth = 1;
+      for (let y = 80; y < 900; y += 45) {
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.bezierCurveTo(400, y - 25, 800, y + 25, 1200, y);
+        ctx.stroke();
+      }
+      ctx.restore();
+    } else if (activeEffect.key === 'gold_embossed') {
+      ctx.save();
+      ctx.strokeStyle = '#F59E0B';
+      ctx.lineWidth = 3;
+      ctx.strokeRect(10, 10, 1180, 880);
+      ctx.strokeStyle = 'rgba(245, 158, 11, 0.4)';
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(16, 16, 1168, 868);
+      ctx.restore();
+    } else if (activeEffect.key === 'stealth') {
+      ctx.save();
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.12)';
+      ctx.fillRect(0, 0, 1200, 900);
+      ctx.strokeStyle = 'rgba(100, 116, 139, 0.6)';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(12, 12, 1176, 876);
+      ctx.restore();
     }
 
     let buffer = null;
@@ -1954,6 +2392,36 @@ export const cardCommand = {
         .addUserOption((opt) =>
           opt.setName('citizen').setDescription('Target member to look up (leave empty to view your own card)')
         )
+        .addStringOption((opt) =>
+          opt
+            .setName('theme')
+            .setDescription('Card accent color theme (Imperial Gold, Cyan, Crimson, Emerald, Cyber, Matrix, etc.)')
+            .setRequired(false)
+            .addChoices(
+              { name: '👑 Imperial Gold [Default]', value: 'gold' },
+              { name: '💠 UOI Cyan', value: 'cyan' },
+              { name: '🩸 Blood Crimson', value: 'crimson' },
+              { name: '🌿 Forest Emerald', value: 'emerald' },
+              { name: '🔮 Royal Amethyst', value: 'purple' },
+              { name: '⚡ Cyberpunk Neon', value: 'cyber' },
+              { name: '☣️ Toxic Matrix', value: 'matrix' },
+              { name: '🌅 Sunset Blaze', value: 'sunset' },
+              { name: '🌸 Sakura Blossom', value: 'sakura' },
+              { name: '🖤 Obsidian Stealth', value: 'stealth' }
+            )
+        )
+        .addStringOption((opt) =>
+          opt
+            .setName('effect')
+            .setDescription('Card visual security effect (Holographic Foil, Gold Embossed, Stealth)')
+            .setRequired(false)
+            .addChoices(
+              { name: '✨ Clean Standard [Default]', value: 'standard' },
+              { name: '🔮 Prismatic Holographic Foil', value: 'holographic' },
+              { name: '👑 Gold Foil Embossed Frame', value: 'gold_embossed' },
+              { name: '🖤 Tactical Stealth Dark Mode', value: 'stealth' }
+            )
+        )
     )
     // 8. /card set-template (1 template per server, supports reset)
     .addSubcommand((sub) =>
@@ -2036,29 +2504,64 @@ export const cardCommand = {
         .addIntegerOption((opt) =>
           opt
             .setName('effect')
-            .setDescription('Visual effect style (Default: Two-Tone Gradient)')
+            .setDescription('Visual effect style (Default: Two-Tone Linear Gradient)')
             .setRequired(false)
             .addChoices(
-              { name: '🌈 Gradient (Effect 2) [Default]', value: 2 },
-              { name: '⚡ Neon Glow (Effect 3)', value: 3 },
-              { name: '💥 Pop Accent (Effect 5)', value: 5 },
-              { name: '🎨 Toon Outline (Effect 4)', value: 4 },
-              { name: '⬛ Solid Color (Effect 1)', value: 1 }
+              { name: '🌈 Gradient: Two-Tone Linear (Effect 2) [Default]', value: 2 },
+              { name: '⚡ Neon Glow: Electric Luminescence (Effect 3)', value: 3 },
+              { name: '🎨 Toon Outline: Comic Contour (Effect 4)', value: 4 },
+              { name: '💥 Pop Accent: 3D Drop-Shadow (Effect 5)', value: 5 },
+              { name: '🔮 Holographic: Prismatic Shimmer (Effect 6)', value: 6 },
+              { name: '⚡ Cyberpunk: Glitch & Aura Pulse (Effect 7)', value: 7 },
+              { name: '✨ Velvet Luxe: Ambient Radiance (Effect 8)', value: 8 },
+              { name: '☀️ Sunburst: Radial Flare (Effect 9)', value: 9 },
+              { name: '⬛ Solid: Clean Monochromatic (Effect 1)', value: 1 }
             )
         )
         .addStringOption((opt) =>
           opt
             .setName('color')
-            .setDescription('Display Color Theme (Default: Dark Orange, White & Dark Green Gradient)')
+            .setDescription('Color Theme Preset (25 rich options with dual-color gradients)')
             .setRequired(false)
             .addChoices(
-              { name: '🇮🇳 Tricolor (Dark Orange, White & Dark Green Gradient) [Default]', value: 'tiranga' },
-              { name: '💠 UOI Cyan (#38BDF8)', value: 'cyan' },
-              { name: '🇮🇳 Deep Saffron (#D95700)', value: 'saffron' },
-              { name: '🌿 Dark Forest Green (#0D652D)', value: 'emerald' },
-              { name: '🔮 Royal Purple (#8B5CF6)', value: 'purple' },
-              { name: '🩸 Crimson Red (#EF4444)', value: 'crimson' }
+              { name: '🇮🇳 Tricolor: Saffron & Forest Green [Default]', value: 'tiranga' },
+              { name: '🇮🇳 Ashoka: Royal Navy & Deep Saffron', value: 'ashoka_navy' },
+              { name: '⚡ Cyberpunk: Electric Cyan & Neon Blue', value: 'cyber_cyan' },
+              { name: '👑 Imperial Gold: Warm Gold & Amber', value: 'imperial_gold' },
+              { name: '🩸 Blood Crimson: Warning Red & Scarlet', value: 'blood_crimson' },
+              { name: '🌿 Deep Emerald: Forest Green & Jade', value: 'emerald_forest' },
+              { name: '🔮 Royal Amethyst: Cosmic Violet & Purple', value: 'royal_purple' },
+              { name: '🌅 Sunset Blaze: Solar Orange & Coral', value: 'sunset_blaze' },
+              { name: '☣️ Toxic Matrix: Acid Lime & Terminal Green', value: 'toxic_matrix' },
+              { name: '🌌 Midnight Sapphire: Deep Navy & Cobalt', value: 'midnight_sapphire' },
+              { name: '🌸 Sakura Blossom: Cherry Pink & Rose', value: 'sakura_blossom' },
+              { name: '🖤 Obsidian Stealth: Matte Slate & Black', value: 'obsidian_stealth' },
+              { name: '❄️ Arctic Glacier: Frost Teal & Ice White', value: 'arctic_glacier' },
+              { name: '🔥 Plasma Fire: Molten Lava & Sunfire Orange', value: 'plasma_fire' },
+              { name: '🌆 Synthwave Neon: Hot Magenta & Violet', value: 'synthwave_neon' },
+              { name: '🛡️ Antique Bronze: Burnished Copper & Gold', value: 'bronze_copper' },
+              { name: '🌌 Aurora Borealis: Northern Teal & Indigo', value: 'aurora_teal' },
+              { name: '🍷 Velvet Wine: Velvet Ruby & Maroon', value: 'velvet_wine' },
+              { name: '💠 UOI Cyan: Signature Government Cyan', value: 'uoi_cyan' },
+              { name: '☀️ Solar Flare: Luminous Yellow & Saffron', value: 'solar_yellow' },
+              { name: '🚀 Deep Nebula: Space Purple & Starlight Blue', value: 'deep_nebula' },
+              { name: '👻 Platinum Ghost: Aerospace Platinum & Silver', value: 'platinum_ghost' },
+              { name: '🌹 Ruby Rose: Bright Rose & Vivid Berry', value: 'ruby_rose' },
+              { name: '🌊 Ocean Lagoon: Tropical Turquoise & Seafoam', value: 'ocean_lagoon' },
+              { name: '✨ Golden Hour: Saffron Gold & Sunset Amber', value: 'golden_hour' }
             )
+        )
+        .addStringOption((opt) =>
+          opt
+            .setName('custom_hex')
+            .setDescription('Or enter ANY custom Primary Hex Color (e.g. #FF0055 or 00FFAA)')
+            .setRequired(false)
+        )
+        .addStringOption((opt) =>
+          opt
+            .setName('custom_hex2')
+            .setDescription('Optional Secondary Hex Color for custom 2-Tone Gradient (e.g. #3B82F6)')
+            .setRequired(false)
         )
         .addBooleanOption((opt) =>
           opt
@@ -2692,6 +3195,9 @@ export const cardCommand = {
       }
 
       // 2. Render card with server context & Server-Specific flag
+      const themeChoice = interaction.options.getString('theme') || card.cardTheme || guildConfig?.cardTheme || 'gold';
+      const effectChoice = interaction.options.getString('effect') || card.cardEffect || guildConfig?.cardEffect || 'standard';
+
       let cardBuffer = null;
       let usedTemplate = false;
       let templateSource = null;
@@ -2710,6 +3216,8 @@ export const cardCommand = {
           issuedAt: card.issuedAt,
           isServerSpecific,
           serverName,
+          theme: themeChoice,
+          effect: effectChoice,
         });
         cardBuffer = renderResult.buffer;
         usedTemplate = renderResult.usedTemplate;
@@ -2755,6 +3263,11 @@ export const cardCommand = {
             value: isServerSpecific
               ? `🌐 **SERVER-SPECIFIC FLAG**\n*Scoped to **${serverName}***`
               : `🏛️ **Standard Registry**\n*${serverName}*`,
+            inline: true,
+          },
+          {
+            name: '🎨 Visual Style & Security Effect',
+            value: `Theme: **${CARD_VISUAL_THEMES[themeChoice]?.name || themeChoice}**\nEffect: **${CARD_VISUAL_EFFECTS[effectChoice]?.name || effectChoice}**`,
             inline: true,
           },
           {
@@ -3684,25 +4197,12 @@ export const cardCommand = {
       const reset = interaction.options.getBoolean('reset');
       const fontId = interaction.options.getInteger('font') ?? 10; // Default: Font 10 Sinistre
       const effectId = interaction.options.getInteger('effect') ?? 2; // Default: Gradient (Effect 2)
-      const colorChoice = interaction.options.getString('color') ?? 'tiranga'; // Default: Tiranga Gradient
+      const colorChoice = interaction.options.getString('color') ?? 'tiranga';
+      const customHex1 = interaction.options.getString('custom_hex');
+      const customHex2 = interaction.options.getString('custom_hex2');
 
-      // Dark Orange (Deep Saffron: 0xD95700) and Dark Green (Forest Green: 0x0D652D)
-      // Note: Discord API strictly requires display_name_colors to contain at most 2 colors.
-      let colors = [0xd95700, 0x0d652d]; // Default Tiranga Dark Orange & Dark Green
-
-      if (colorChoice === 'cyan') {
-        colors = [0x38bdf8];
-      } else if (colorChoice === 'saffron') {
-        colors = [0xd95700];
-      } else if (colorChoice === 'emerald') {
-        colors = [0x0d652d];
-      } else if (colorChoice === 'purple') {
-        colors = [0x8b5cf6];
-      } else if (colorChoice === 'crimson') {
-        colors = [0xef4444];
-      } else if (colorChoice === 'tiranga') {
-        colors = [0xd95700, 0x0d652d]; // Dark Orange & Dark Green (Tiranga 2-Color Gradient)
-      }
+      const resolvedColor = resolveBotStyleColors(colorChoice, customHex1, customHex2);
+      const colors = resolvedColor.colors;
 
       const token = (process.env.DISCORD_TOKEN || '').trim();
       if (!token) {
@@ -3714,30 +4214,12 @@ export const cardCommand = {
       const rest = new REST({ version: '10' }).setToken(token);
 
       try {
-        // 1. Also update bot's server role color if bot has Manage Roles permission!
-        // Discord renders bot username colors in chat and the member sidebar based on role color.
-        let roleColored = false;
-        let coloredRoleName = null;
-        try {
-          const botMember = interaction.guild?.members?.me || (interaction.guild ? await interaction.guild.members.fetch(interaction.client.user.id) : null);
-          if (botMember) {
-            const roleToColor = botMember.roles.cache
-              .filter((r) => r.editable && r.id !== interaction.guild.id)
-              .sort((a, b) => b.position - a.position)
-              .first();
-
-            if (roleToColor) {
-              await roleToColor.setColor(reset ? 0 : colors[0]);
-              roleColored = true;
-              coloredRoleName = roleToColor.name;
-              console.log(`[UOI Bot] 🎨 Set bot role @${roleToColor.name} color to 0x${(colors[0] || 0).toString(16)} in ${interaction.guild.name}`);
-            }
-          }
-        } catch (rErr) {
-          console.warn('[UOI Bot] Notice adjusting bot role color:', rErr.message);
-        }
+        const db = loadDatabase();
+        db.guilds = db.guilds || {};
+        db.guilds[guildId] = db.guilds[guildId] || {};
 
         if (reset) {
+          // Reset Discord member display name styling
           try {
             await rest.patch(`/guilds/${guildId}/members/@me`, {
               body: {
@@ -3748,6 +4230,26 @@ export const cardCommand = {
             });
           } catch (_) {}
 
+          // Reset bot role color
+          let roleReset = false;
+          try {
+            const botMember = interaction.guild?.members?.me || await interaction.guild?.members?.fetch(interaction.client.user.id);
+            if (botMember) {
+              const roleToReset = botMember.roles.cache
+                .filter((r) => r.editable && r.id !== interaction.guild.id)
+                .sort((a, b) => b.position - a.position)
+                .first();
+              if (roleToReset) {
+                await roleToReset.setColor(0);
+                roleReset = true;
+              }
+            }
+          } catch (_) {}
+
+          delete db.guilds[guildId].botStyle;
+          saveDatabase(db);
+          flushCardsDbSync();
+
           return interaction.editReply({
             embeds: [
               new EmbedBuilder()
@@ -3755,73 +4257,83 @@ export const cardCommand = {
                 .setColor(0x94a3b8)
                 .setDescription('The bot display name and role color have been reverted to normal standard Discord styling.')
                 .addFields(
-                  { name: 'Role Color Reset', value: roleColored ? `✅ Reverted <@&${coloredRoleName}> to default` : 'ℹ️ Default', inline: true }
+                  { name: 'Role Color Reset', value: roleReset ? '✅ Reverted to default @everyone color' : 'ℹ️ Standard default', inline: true }
                 )
+                .setFooter({ text: 'Union of Indians Visual Engine • Style Cleared' })
                 .setTimestamp(),
             ],
           });
         }
 
-        // 2. Patch Discord member display name styling (Max 2 colors)
-        let styleApplied = false;
-        let styleNotice = null;
-        try {
-          await rest.patch(`/guilds/${guildId}/members/@me`, {
-            body: {
-              display_name_font_id: fontId,
-              display_name_effect_id: effectId,
-              display_name_colors: colors.slice(0, 2),
-            },
-          });
-          styleApplied = true;
-        } catch (firstAttemptErr) {
-          styleNotice = firstAttemptErr.message;
-          console.warn('[UOI Bot] Discord display_name_colors patch notice:', firstAttemptErr.message);
-        }
+        // Apply style to guild through unified helper
+        const applyResult = await applyBotStyleToGuild(
+          interaction.guild,
+          rest,
+          { fontId, effectId, colors },
+          interaction.client.user
+        );
+
+        // Save server preference to database so it persists across reboots
+        db.guilds[guildId].botStyle = {
+          fontId,
+          effectId,
+          colorChoice: resolvedColor.themeKey,
+          themeName: resolvedColor.themeName,
+          colors: resolvedColor.colors,
+          hex: resolvedColor.hex,
+          primaryHex: resolvedColor.primaryHex,
+          isCustom: resolvedColor.isCustom,
+          appliedAt: new Date().toISOString(),
+        };
+        saveDatabase(db);
+        flushCardsDbSync();
 
         const fontNames = {
-          10: 'Font 10: Sinistre (Vampyre / Gothic) 🧛',
+          10: 'Font 10: Sinistre (Vampyre / Gothic) 🧛 [Requested]',
           8: 'Font 8: Pixelify Sans (8-Bit Arcade) 👾',
           3: 'Font 3: Cherry Bomb (Sakura) 🌸',
           4: 'Font 4: Chicle (Jellybean) 🍬',
-          6: 'Font 6: MuseoModerno (Modern) 🌐',
+          6: 'Font 6: MuseoModerno (Modern Geometric) 🌐',
           7: 'Font 7: Neo-Castel (Medieval) ⚔️',
-          11: 'Font 11: GG Sans (Default) 🔄',
+          11: 'Font 11: GG Sans (Discord Default) 🔄',
           12: 'Font 12: Zilla Slab (Tempo / Serif) 📜',
         };
 
-        const effectNames = {
-          1: 'Solid Flat Color',
-          2: 'Two-Tone Gradient',
-          3: 'Electric Neon Glow ⚡',
-          4: 'Toon Pop Outline',
-          5: 'Pop Accent Shadow 💥',
-        };
+        const activeEffectObj = BOT_STYLE_EFFECTS[effectId] || { name: `Effect ${effectId}`, emoji: '✨', description: 'Visual Discord effect' };
 
         const embed = new EmbedBuilder()
-          .setTitle('🎨 UOI Bot Name Style Applied!')
+          .setTitle('🎨 UOI Bot Name Style & Visual Effects Applied!')
           .setColor(colors[0])
-          .setDescription(`Applied styling for <@${interaction.client.user.id}> in **${interaction.guild?.name || 'this server'}**!`)
+          .setDescription(
+            `Successfully styled <@${interaction.client.user.id}> in **${interaction.guild?.name || 'this server'}**!\n\n` +
+            `✨ **Active Palette:** \`${resolvedColor.hex.join(' ➔ ')}\`\n` +
+            `🎭 **Visual Effect:** ${activeEffectObj.emoji} **${activeEffectObj.name}**\n*${activeEffectObj.description}*`
+          )
           .addFields(
             { name: 'Active Font', value: `\`${fontNames[fontId] || fontId}\``, inline: true },
-            { name: 'Visual Effect', value: `\`${effectNames[effectId] || effectId}\``, inline: true },
-            { name: 'Color Theme', value: `\`${colorChoice.toUpperCase()}\` (#${colors[0].toString(16).padStart(6, '0')})`, inline: true },
+            { name: 'Effect Preset', value: `${activeEffectObj.emoji} \`${activeEffectObj.name}\``, inline: true },
+            { name: 'Color Theme', value: `**${resolvedColor.themeName}**\n\`${resolvedColor.hex.join(' ➔ ')}\``, inline: true },
             {
               name: '🏷️ Role Color (Chat & Member List)',
-              value: roleColored
-                ? `✅ **Updated <@&${coloredRoleName}>** to #${colors[0].toString(16).padStart(6, '0')}\n*(Visible to everyone in chat, sidebar, and profile cards!)*`
-                : `ℹ️ Ensure the bot has a role above @everyone with \`Manage Roles\` permission so it can auto-color its sidebar name.`,
+              value: applyResult.roleUpdated
+                ? `✅ **Updated <@&${applyResult.roleName}>** to \`${resolvedColor.primaryHex}\`\n*(Guaranteed high-visibility color in chat, sidebar, and profile popups for all users!)*`
+                : `ℹ️ Ensure the bot has a role above @everyone with \`Manage Roles\` permission so it can automatically color its sidebar name.`,
               inline: false,
             },
             {
               name: '📱 Discord Display Name Styling Note',
-              value: styleApplied
-                ? `✅ Custom font and gradient properties registered with Discord API.`
-                : `ℹ️ Discord's native text effect styling requires client/Nitro compatibility. The server **Role Color** above provides guaranteed color in chat and member list!`,
+              value: applyResult.restPatched
+                ? `✅ Custom font (\`${fontNames[fontId] || fontId}\`) and two-tone gradient properties registered with Discord API.`
+                : `ℹ️ Discord's native font/effect rendering requires client/Nitro compatibility. The server **Role Color** above provides guaranteed color in chat and member list!`,
+              inline: false,
+            },
+            {
+              name: '💾 Permanent Storage',
+              value: `✅ Saved to permanent server settings. This style will automatically re-apply on bot reboots and redeployments!`,
               inline: false,
             }
           )
-          .setFooter({ text: 'Union of Indians Registry • Visual Branding' })
+          .setFooter({ text: 'Union of Indians Registry • Visual Branding Engine' })
           .setTimestamp();
 
         return interaction.editReply({ embeds: [embed] });

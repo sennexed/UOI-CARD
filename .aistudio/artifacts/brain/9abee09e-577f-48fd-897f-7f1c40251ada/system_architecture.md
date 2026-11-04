@@ -119,3 +119,40 @@ Each notification includes:
 * **Interactive Buttons**: Officers can click **[✅ Accept & Issue Card]** or **[❌ Decline with Reason]**.
 * **Direct Message (DM) on Approval**: Automatically sends a private DM to the citizen with their card graphic attached, serial ID, and 2-month validity details.
 * **Direct Message (DM) on Decline**: Automatically sends a private DM containing the reviewing officer's exact explanation.
+
+---
+
+## 7. Bot Display Name Styling & Role Color Synchronization
+
+* **25 Color Choices (Discord Limit)**:
+  * Full palette of 25 curated themes with dual-color linear gradients and descriptions.
+  * Supported by Discord's slash command choice limit (capped at 25 items per option).
+* **Arbitrary 24-Bit RGB Custom Hex**:
+  * `custom_hex` (primary) and `custom_hex2` (secondary stop) parameters enable infinite customization without needing preset updates.
+* **9 Visual Effects**:
+  * 1: Solid Flat Color
+  * 2: Two-Tone Linear Gradient [Default]
+  * 3: Electric Neon Glow
+  * 4: Toon Pop Outline
+  * 5: 3D Pop Drop-Shadow
+  * 6: Holographic Prismatic Shimmer
+  * 7: Cyberpunk Pulse & Glitch
+  * 8: Velvet Luxe Radiance
+  * 9: Radial Sunburst Flare
+* **Role Color Synchronization (`applyBotStyleToGuild`)**:
+  * Solves Discord API display name styling inconsistencies across mobile and web clients.
+  * Finds the bot's highest editable server role (or auto-provisions a cosmetic `@UOI Bot Display` role) and sets its color to the primary palette color.
+  * Restored per-server upon bot startup and `guildCreate`.
+
+---
+
+## 8. Card Visual Themes & Security Overlays (`/card show`)
+
+* **10 Accent Color Themes**: Gold, Cyan, Crimson, Emerald, Purple, Cyber, Matrix, Sunset, Sakura, and Stealth.
+  * Styles Serial ID, rank badge box, barcode bars, and QR modules.
+* **4 Security Effects**:
+  * `standard`: Official clean high-contrast blueprint layout.
+  * `holographic`: Prismatic rainbow diffraction foil with dynamic anti-counterfeiting guilloche wavy security lines.
+  * `gold_embossed`: Dual metallic gold borders with beveled corner security crests.
+  * `stealth`: Matte dark tactical border vignette with muted monochrome tone.
+

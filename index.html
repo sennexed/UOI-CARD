@@ -357,6 +357,143 @@
         </div>
       </div>
 
+      <!-- Bot Name Styling & Visual Theme Studio -->
+      <div class="card" id="botstyle-studio-card" style="border: 1px solid rgba(245, 158, 11, 0.35);">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 8px;">
+          <div class="card-title" style="margin-bottom: 0;">🎨 Bot Name Styling & Visual Theme Studio</div>
+          <span style="font-size: 11px; padding: 3px 8px; border-radius: 4px; background: rgba(245,158,11,0.2); color: #fbbf24; font-weight: 600;">
+            25 Themes &bull; 9 Effects &bull; Infinite Custom Hex &bull; 4 Card Security Effects
+          </span>
+        </div>
+        <p style="color: var(--text-muted); font-size: 13px; line-height: 1.5; margin-bottom: 16px;">
+          Admins can style the bot's username appearance across Discord with <strong>Font 10 (Sinistre Vampyre)</strong>, 9 visual rendering effects, 25 curated two-tone color palettes, or arbitrary 24-bit RGB hex codes. Guaranteed visual color rendering in chat, the member list, and profile popouts via automatic <code>@UOI Bot Display</code> role coloring.
+        </p>
+
+        <!-- Live Custom Hex Generator Sandbox -->
+        <div style="background: rgba(15,23,42,0.7); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 16px; margin-bottom: 16px;">
+          <div style="font-weight: 600; font-size: 13px; margin-bottom: 8px; color: #f8fafc; display: flex; justify-content: space-between; align-items: center;">
+            <span>✨ Custom Hex Color & Effect Generator</span>
+            <span id="custom-hex-live-badge" style="font-size: 11px; padding: 2px 8px; border-radius: 4px; font-family: monospace; background: linear-gradient(90deg, #D95700, #0D652D); color: #fff; font-weight: bold;">
+              LIVE PREVIEW: UOI Bot
+            </span>
+          </div>
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; margin-bottom: 12px;">
+            <div>
+              <label style="font-size: 11px; color: var(--text-muted); display: block; margin-bottom: 4px;">Primary Hex (or Hex 1):</label>
+              <div style="display: flex; gap: 6px; align-items: center;">
+                <input type="color" id="picker-hex1" value="#D95700" style="width: 32px; height: 32px; border: none; border-radius: 4px; cursor: pointer; background: transparent;" oninput="syncCustomHex('picker1')" />
+                <input type="text" id="input-hex1" value="#D95700" maxlength="7" style="flex: 1; padding: 6px 10px; background: rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.15); border-radius: 6px; color: #38bdf8; font-family: monospace; font-size: 12px;" oninput="syncCustomHex('text1')" />
+              </div>
+            </div>
+            <div>
+              <label style="font-size: 11px; color: var(--text-muted); display: block; margin-bottom: 4px;">Secondary Hex (Hex 2):</label>
+              <div style="display: flex; gap: 6px; align-items: center;">
+                <input type="color" id="picker-hex2" value="#0D652D" style="width: 32px; height: 32px; border: none; border-radius: 4px; cursor: pointer; background: transparent;" oninput="syncCustomHex('picker2')" />
+                <input type="text" id="input-hex2" value="#0D652D" maxlength="7" style="flex: 1; padding: 6px 10px; background: rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.15); border-radius: 6px; color: #34d399; font-family: monospace; font-size: 12px;" oninput="syncCustomHex('text2')" />
+              </div>
+            </div>
+            <div>
+              <label style="font-size: 11px; color: var(--text-muted); display: block; margin-bottom: 4px;">Visual Effect:</label>
+              <select id="select-effect" style="width: 100%; padding: 7px 10px; background: #090e1c; border: 1px solid rgba(255,255,255,0.15); border-radius: 6px; color: #f8fafc; font-size: 12px;" onchange="updateGeneratedCommand()">
+                <option value="2">🌈 Two-Tone Linear Gradient [Default]</option>
+                <option value="1">⬛ Solid Flat Color</option>
+                <option value="3">⚡ Electric Neon Glow</option>
+                <option value="4">🎨 Toon Pop Outline</option>
+                <option value="5">💥 3D Pop Drop-Shadow</option>
+                <option value="6">🔮 Holographic Prismatic Shimmer</option>
+                <option value="7">⚡ Cyberpunk Pulse & Glitch</option>
+                <option value="8">✨ Velvet Luxe Radiance</option>
+                <option value="9">☀️ Radial Sunburst Flare</option>
+              </select>
+            </div>
+          </div>
+          <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+            <input type="text" id="generated-botstyle-cmd" readonly style="flex: 1; min-width: 260px; padding: 8px 12px; background: rgba(0,0,0,0.6); border: 1px solid rgba(245,158,11,0.3); border-radius: 6px; color: #fbbf24; font-family: monospace; font-size: 12px;" value="/card botstyle effect:2 custom_hex:#D95700 custom_hex2:#0D652D" />
+            <button class="btn" style="padding: 8px 16px; font-size: 12px; background: rgba(245,158,11,0.2); color: #fbbf24; border: 1px solid rgba(245,158,11,0.4);" onclick="copyCustomBotstyleCmd()">
+              📋 Copy Command
+            </button>
+          </div>
+        </div>
+
+        <!-- 9 Visual Effects Badges -->
+        <div style="margin-bottom: 16px;">
+          <div style="font-size: 12px; font-weight: 700; color: #e2e8f0; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px;">
+            ✨ 9 Bot Visual Rendering Effects
+          </div>
+          <div id="botstyle-effects-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 8px;">
+            <!-- Populated dynamically or static fallback -->
+            <div style="background: rgba(15,23,42,0.6); padding: 8px 12px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.06); font-size: 12px;">
+              <strong>🌈 Two-Tone Linear Gradient</strong> <span style="color: #38bdf8; font-size: 11px;">[Default]</span>
+              <div style="color: var(--text-muted); font-size: 11px;">Smooth linear transition between 2 colors</div>
+            </div>
+            <div style="background: rgba(15,23,42,0.6); padding: 8px 12px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.06); font-size: 12px;">
+              <strong>⚡ Electric Neon Glow</strong>
+              <div style="color: var(--text-muted); font-size: 11px;">High-intensity neon luminescence aura</div>
+            </div>
+            <div style="background: rgba(15,23,42,0.6); padding: 8px 12px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.06); font-size: 12px;">
+              <strong>🎨 Toon Pop Outline</strong>
+              <div style="color: var(--text-muted); font-size: 11px;">Bold comic-style contour border</div>
+            </div>
+            <div style="background: rgba(15,23,42,0.6); padding: 8px 12px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.06); font-size: 12px;">
+              <strong>💥 3D Pop Drop-Shadow</strong>
+              <div style="color: var(--text-muted); font-size: 11px;">Dimensional elevated depth shadow</div>
+            </div>
+            <div style="background: rgba(15,23,42,0.6); padding: 8px 12px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.06); font-size: 12px;">
+              <strong>🔮 Holographic Shimmer</strong>
+              <div style="color: var(--text-muted); font-size: 11px;">Prismatic light diffraction shimmer</div>
+            </div>
+            <div style="background: rgba(15,23,42,0.6); padding: 8px 12px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.06); font-size: 12px;">
+              <strong>⚡ Cyberpunk Pulse & Glitch</strong>
+              <div style="color: var(--text-muted); font-size: 11px;">Futuristic cyberpunk pulse and aura</div>
+            </div>
+            <div style="background: rgba(15,23,42,0.6); padding: 8px 12px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.06); font-size: 12px;">
+              <strong>✨ Velvet Luxe Radiance</strong>
+              <div style="color: var(--text-muted); font-size: 11px;">Warm luxury ambient glow & saturation</div>
+            </div>
+            <div style="background: rgba(15,23,42,0.6); padding: 8px 12px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.06); font-size: 12px;">
+              <strong>☀️ Radial Sunburst Flare</strong>
+              <div style="color: var(--text-muted); font-size: 11px;">Vibrant radial flare centered outward</div>
+            </div>
+            <div style="background: rgba(15,23,42,0.6); padding: 8px 12px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.06); font-size: 12px;">
+              <strong>⬛ Solid Flat Color</strong>
+              <div style="color: var(--text-muted); font-size: 11px;">Clean monochromatic uniform tone</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 25 Curated Color Themes Grid -->
+        <div style="margin-bottom: 16px;">
+          <div style="font-size: 12px; font-weight: 700; color: #e2e8f0; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center;">
+            <span>🎨 25 Curated Two-Tone Color Themes (Click to Copy Command)</span>
+            <span style="font-size: 11px; color: var(--text-muted); font-weight: normal;">Max 25 Choices Supported by Discord Slash API</span>
+          </div>
+          <div id="botstyle-colors-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px; max-height: 280px; overflow-y: auto; padding-right: 4px;">
+            <!-- Populated dynamically via JS from /api/botstyle -->
+          </div>
+        </div>
+
+        <!-- 10 Card Visual Themes & 4 Security Effects -->
+        <div>
+          <div style="font-size: 12px; font-weight: 700; color: #e2e8f0; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px;">
+            🛡️ 10 Citizen ID Card Themes &amp; 4 Security Effects (<code>/card show theme: effect:</code>)
+          </div>
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 8px;">
+            <div style="background: rgba(15,23,42,0.6); padding: 8px 12px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.06); font-size: 11px;">
+              <strong style="color: #fbbf24;">Standard</strong> &bull; Clean high-contrast blueprint layout
+            </div>
+            <div style="background: rgba(15,23,42,0.6); padding: 8px 12px; border-radius: 6px; border: 1px solid rgba(236,72,153,0.3); font-size: 11px;">
+              <strong style="color: #f472b6;">🔮 Holographic Foil</strong> &bull; Prismatic rainbow diffraction & security guilloche curves
+            </div>
+            <div style="background: rgba(15,23,42,0.6); padding: 8px 12px; border-radius: 6px; border: 1px solid rgba(245,158,11,0.3); font-size: 11px;">
+              <strong style="color: #f59e0b;">👑 Gold Foil Embossed</strong> &bull; Dual metallic gold borders with beveled corner crests
+            </div>
+            <div style="background: rgba(15,23,42,0.6); padding: 8px 12px; border-radius: 6px; border: 1px solid rgba(71,85,105,0.4); font-size: 11px;">
+              <strong style="color: #94a3b8;">🕶️ Night-Vision Stealth</strong> &bull; Matte dark tactical border with muted monochrome tones
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- Commands Reference -->
       <div class="card">
         <div class="card-title">📜 Integrated Slash Commands</div>
@@ -941,9 +1078,81 @@
         }
       }
 
+      // Bot Style Studio Interactive Sandbox & Live Grid
+      function syncCustomHex(source) {
+        const p1 = document.getElementById('picker-hex1');
+        const t1 = document.getElementById('input-hex1');
+        const p2 = document.getElementById('picker-hex2');
+        const t2 = document.getElementById('input-hex2');
+
+        if (source === 'picker1' && p1 && t1) t1.value = p1.value.toUpperCase();
+        if (source === 'text1' && p1 && t1 && /^#[0-9A-Fa-f]{6}$/.test(t1.value)) p1.value = t1.value;
+        if (source === 'picker2' && p2 && t2) t2.value = p2.value.toUpperCase();
+        if (source === 'text2' && p2 && t2 && /^#[0-9A-Fa-f]{6}$/.test(t2.value)) p2.value = t2.value;
+
+        updateGeneratedCommand();
+      }
+
+      function updateGeneratedCommand() {
+        const t1 = document.getElementById('input-hex1')?.value || '#D95700';
+        const t2 = document.getElementById('input-hex2')?.value || '#0D652D';
+        const effect = document.getElementById('select-effect')?.value || '2';
+        const badge = document.getElementById('custom-hex-live-badge');
+        const cmdInput = document.getElementById('generated-botstyle-cmd');
+
+        if (badge) {
+          badge.style.background = `linear-gradient(90deg, ${t1}, ${t2})`;
+        }
+        if (cmdInput) {
+          cmdInput.value = `/card botstyle effect:${effect} custom_hex:${t1} custom_hex2:${t2}`;
+        }
+      }
+
+      function copyCustomBotstyleCmd() {
+        const cmdInput = document.getElementById('generated-botstyle-cmd');
+        if (!cmdInput) return;
+        navigator.clipboard.writeText(cmdInput.value).then(() => {
+          const btn = event?.target;
+          if (btn) {
+            const old = btn.textContent;
+            btn.textContent = '✅ Copied!';
+            setTimeout(() => { btn.textContent = old; }, 2000);
+          }
+        });
+      }
+
+      function copyBotstyleColor(colorKey) {
+        const cmd = `/card botstyle effect:2 color:${colorKey}`;
+        navigator.clipboard.writeText(cmd).then(() => {
+          alert(`Copied to clipboard:\n${cmd}`);
+        });
+      }
+
+      async function updateBotStyleStudio() {
+        try {
+          const res = await fetch('/api/botstyle');
+          if (!res.ok) return;
+          const data = await res.json();
+          const grid = document.getElementById('botstyle-colors-grid');
+          if (!grid || !data.colors) return;
+
+          grid.innerHTML = data.colors.map(c => `
+            <div onclick="copyBotstyleColor('${escapeHtml(c.key)}')" title="Click to copy: /card botstyle color:${escapeHtml(c.key)}" style="background: rgba(15,23,42,0.6); padding: 8px 10px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.06); cursor: pointer; transition: transform 0.15s ease, border-color 0.15s ease; font-size: 11px;" onmouseover="this.style.borderColor='rgba(245,158,11,0.5)'; this.style.transform='translateY(-2px)'" onmouseout="this.style.borderColor='rgba(255,255,255,0.06)'; this.style.transform='none'">
+              <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px;">
+                <span style="font-weight: 700; color: #f8fafc;">${escapeHtml(c.name)}</span>
+                <span style="width: 14px; height: 14px; border-radius: 3px; background: linear-gradient(135deg, ${c.hex[0]}, ${c.hex[1]}); border: 1px solid rgba(255,255,255,0.2);"></span>
+              </div>
+              <div style="font-family: monospace; color: #94a3b8; font-size: 10px;">${c.hex[0]} &bull; ${c.hex[1]}</div>
+              <div style="color: var(--text-muted); font-size: 10px; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(c.description)}</div>
+            </div>
+          `).join('');
+        } catch (_) {}
+      }
+
       updateMemoryStatus();
       updateTemplateStatus();
       updateGitStatus();
+      updateBotStyleStudio();
       setInterval(updateMemoryStatus, 5000);
       setInterval(updateTemplateStatus, 10000);
       setInterval(updateGitStatus, 10000);

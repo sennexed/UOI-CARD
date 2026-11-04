@@ -92,9 +92,12 @@ Coordinate layout mapping for the official UOI card:
 * When staff clicks **[✅ Accept & Issue Card]**, the bot automatically sends a celebratory DM directly to the citizen with their attached ID card graphic and expiration date.
 * When staff clicks **[❌ Decline with Reason]**, the bot sends a DM detailing the officer's exact justification.
 
-### 3.5 Server Display Name Styling
-* `/card botstyle`: Configures bot display name font (e.g. Font 10 Sinistre), gradient effects, and colors.
-* Automatically synchronizes the bot's highest editable server role color (e.g. Deep Saffron `#D95700`) so its name turns the chosen color in chat and the member list for all users.
+### 3.5 Server Display Name Styling & Color Studio
+* **25 Color Choices (Discord Limit)**: Curated spectrum from Indian Tricolor, Ashoka Navy, Cyber Cyan, Imperial Gold, Blood Crimson, to Obsidian Stealth, Toxic Matrix, and Sunset Blaze.
+* **Infinite Custom Hex Option**: Support for `custom_hex` and `custom_hex2` allowing any 24-bit RGB gradient (#HEX).
+* **9 Visual Effects**: Solid Flat Color, Two-Tone Linear Gradient [Default], Electric Neon Glow, Toon Pop Outline, 3D Pop Drop-Shadow, Holographic Prismatic Shimmer, Cyberpunk Pulse & Glitch, Velvet Luxe Radiance, Radial Sunburst Flare.
+* **100% Guaranteed Color Rendering**: Automatically synchronizes or creates an auto-managed `@UOI Bot Display` server role color so the bot's username is vibrantly colored in chat, sidebars, and popups across all Discord desktop, web, and mobile clients.
+* **Persistent Multi-Server Memory**: Saved into `data/cards.json` under `db.guilds[guildId].botStyle` and restored on ready and `guildCreate`.
 
 ### 3.6 Automated 48-Hour Card Application Expiry Sentinel
 * **Prevents Stuck / Hanging Applications**:
@@ -106,3 +109,12 @@ Coordinate layout mapping for the official UOI card:
 * **Review Button Guarding & Sweep**:
   * Action buttons on expired review messages reject clicks with an explanation and are automatically deactivated to `⏰ Application Expired (48h Timeout)`.
   * Background sentinel auto-sweeps every 30 minutes, transitioning expired records and sending a courtesy DM to the applicant so they know they are cleared to reapply.
+
+### 3.7 Citizen ID Card Visual Themes & Security Overlays (`/card show`)
+* **10 Accent Color Themes**: Gold, Cyan, Crimson, Emerald, Purple, Cyber, Matrix, Sunset, Sakura, and Stealth. Dynamic accent coloring of Serial ID, rank box borders, barcodes, and QR modules.
+* **4 Security Effects**:
+  1. `standard`: Official clean high-contrast blueprint layout.
+  2. `holographic`: Prismatic rainbow diffraction foil with dynamic anti-counterfeiting guilloche wavy security lines across the credential canvas.
+  3. `gold_embossed`: Dual metallic gold borders with beveled corner security crests.
+  4. `stealth`: Matte dark tactical border vignette with muted monochrome tone.
+

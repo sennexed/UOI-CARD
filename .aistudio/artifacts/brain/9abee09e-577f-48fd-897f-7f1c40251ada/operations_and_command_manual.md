@@ -205,12 +205,86 @@ The bot runs an integrated HTTP verification service on port 3000:
 
 ---
 
-## 8. Bot Display Name Styling
+## 8. Bot Display Name Styling & Color Studio (`/card botstyle`)
 
 ```
-/card botstyle font:10 effect:2 color:tiranga
+/card botstyle [font:10] [effect:1-9] [color:<theme>] [custom_hex:#HEX1] [custom_hex2:#HEX2]
 ```
-* **Font 10 (Sinistre)**: Gothic / stylistic lettering.
-* **Effect 2 (Gradient)**: Smooth multi-stop gradient.
-* **Colors**: `tiranga` (Dark Orange & Dark Green Tiranga gradient), `cyan`, `saffron`, `emerald`.
-* **Server Role Color Sync**: Automatically synchronizes the bot's highest editable role color so its name is colored in chat and member sidebars for all users.
+
+### Full Customization Spectrum:
+* **25 Curated Two-Tone Color Themes** (Maximum allowed Discord choices):
+  1. `tiranga`: 🇮🇳 Indian Tricolor (#D95700 & #0D652D) [Default]
+  2. `ashoka_navy`: 🇮🇳 Ashoka Royal Navy (#000080 & #FF671F)
+  3. `cyber_cyan`: ⚡ Cyberpunk Neon (#00F0FF & #3B82F6)
+  4. `imperial_gold`: 👑 Imperial Gold (#F59E0B & #B45309)
+  5. `blood_crimson`: 🩸 Blood Crimson (#EF4444 & #991B1B)
+  6. `emerald_forest`: 🌿 Deep Emerald (#0D652D & #10B981)
+  7. `royal_purple`: 🔮 Royal Amethyst (#8B5CF6 & #6D28D9)
+  8. `sunset_blaze`: 🌅 Sunset Blaze (#F97316 & #F43F5E)
+  9. `toxic_matrix`: ☣️ Toxic Acid Matrix (#84CC16 & #22C55E)
+  10. `midnight_sapphire`: 🌌 Midnight Sapphire (#2563EB & #1E1B4B)
+  11. `sakura_blossom`: 🌸 Sakura Blossom (#EC4899 & #F472B6)
+  12. `obsidian_stealth`: 🖤 Obsidian Stealth (#334155 & #0F172A)
+  13. `arctic_glacier`: ❄️ Arctic Glacier (#06B6D4 & #E2E8F0)
+  14. `plasma_fire`: 🔥 Plasma Fire (#FF5722 & #FFC107)
+  15. `synthwave_neon`: 🌆 Synthwave Neon (#D946EF & #8B5CF6)
+  16. `bronze_copper`: 🛡️ Antique Bronze (#D97706 & #78350F)
+  17. `aurora_teal`: 🌌 Aurora Borealis (#14B8A6 & #6366F1)
+  18. `velvet_wine`: 🍷 Velvet Wine (#E11D48 & #881337)
+  19. `uoi_cyan`: 💠 UOI Signature Cyan (#38BDF8 & #0284C7)
+  20. `solar_yellow`: ☀️ Solar Flare (#EAB308 & #EA580C)
+  21. `deep_nebula`: 🚀 Deep Nebula (#6366F1 & #A855F7)
+  22. `platinum_ghost`: 👻 Platinum Ghost (#CBD5E1 & #64748B)
+  23. `ruby_rose`: 🌹 Ruby Rose (#FB7185 & #BE123C)
+  24. `ocean_lagoon`: 🌊 Ocean Lagoon (#0284C7 & #2DD4BF)
+  25. `golden_hour`: ✨ Golden Hour (#F59E0B & #F97316)
+
+* **Infinite 24-Bit RGB Custom Hex Input**:
+  * `custom_hex`: Primary color (e.g., `#FF0055`, `FF0055`, `#00FFAA`).
+  * `custom_hex2`: Secondary gradient stop (e.g., `#001122`).
+  * If valid 6-digit hex values are provided, they take priority over preset themes, giving server owners complete brand freedom.
+
+* **9 Visual Rendering Effects**:
+  1. `1`: ⬛ Solid Flat Color
+  2. `2`: 🌈 Two-Tone Linear Gradient [Default]
+  3. `3`: ⚡ Electric Neon Glow
+  4. `4`: 🎨 Toon Pop Outline
+  5. `5`: 💥 3D Pop Drop-Shadow
+  6. `6`: 🔮 Holographic Prismatic Shimmer
+  7. `7`: ⚡ Cyberpunk Pulse & Glitch
+  8. `8`: ✨ Velvet Luxe Radiance
+  9. `9`: ☀️ Radial Sunburst Flare
+
+* **100% Reliable Server Role Coloring**:
+  * Fixes Discord client inconsistencies where display name API styling isn't rendered on all mobile/legacy devices.
+  * Checks the bot's editable server roles and updates the color to the primary palette color (or creates an auto-managed `@UOI Bot Display` role).
+  * Guarantees vibrant username color in chat, the server member sidebar, and user popouts!
+
+---
+
+## 9. Citizen ID Card Visual Themes & Security Effects (`/card show`)
+
+Citizens and staff inspecting cards via `/card show` can customize the rendering theme and security watermark overlay:
+
+```
+/card show [citizen:@user] [serial:UOI-2026-XXXXXX] [theme:<theme>] [effect:<effect>]
+```
+
+### 10 Visual Accent Color Themes:
+* `gold`: Imperial Gold (#F59E0B & #B45309) [Default]
+* `cyan`: UOI Government Cyan (#38BDF8 & #0284C7)
+* `crimson`: Blood Crimson (#EF4444 & #991B1B)
+* `emerald`: Forest Emerald (#10B981 & #0D652D)
+* `purple`: Royal Amethyst (#8B5CF6 & #6D28D9)
+* `cyber`: Cyberpunk Neon (#00F0FF & #3B82F6)
+* `matrix`: Toxic Acid Matrix (#22C55E & #84CC16)
+* `sunset`: Sunset Blaze (#F97316 & #F43F5E)
+* `sakura`: Sakura Blossom (#EC4899 & #F472B6)
+* `stealth`: Obsidian Tactical Stealth (#64748B & #0F172A)
+
+### 4 Visual Security Effects:
+* `standard`: Clean, high-contrast official blueprint layout.
+* `holographic`: Prismatic rainbow diffraction foil with intricate anti-counterfeiting guilloche wavy security lines.
+* `gold_embossed`: Dual metallic gold borders with beveled corner security crests.
+* `stealth`: Matte dark tactical vignette with muted monochrome tone.
+

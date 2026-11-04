@@ -12,6 +12,11 @@ import {
   getAllGuildCards,
   checkAndDispatchCardExpirations,
   checkAndExpirePendingApplications,
+  BOT_STYLE_EFFECTS,
+  BOT_STYLE_COLORS,
+  CARD_VISUAL_THEMES,
+  CARD_VISUAL_EFFECTS,
+  applyBotStyleToGuild,
 } from './commands/card.js';
 import {
   syncGuildsMemory,
@@ -557,6 +562,38 @@ const requestHandler = async (req, res) => {
     return;
   }
 
+  // API: Get Bot Style Color Themes and Visual Effects
+  if (urlPath === '/api/botstyle') {
+    const db = loadDatabase();
+    const guildStyle = guildId && db.guilds?.[guildId]?.botStyle ? db.guilds[guildId].botStyle : null;
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    return res.end(
+      JSON.stringify({
+        activeGuildStyle: guildStyle,
+        effectsCount: Object.keys(BOT_STYLE_EFFECTS).length,
+        colorsCount: Object.keys(BOT_STYLE_COLORS).length,
+        cardThemesCount: Object.keys(CARD_VISUAL_THEMES).length,
+        cardEffectsCount: Object.keys(CARD_VISUAL_EFFECTS).length,
+        effects: Object.values(BOT_STYLE_EFFECTS),
+        colors: Object.entries(BOT_STYLE_COLORS).map(([key, c]) => ({
+          key,
+          name: c.name,
+          label: c.label,
+          hex: c.hex,
+          primaryHex: c.primaryHex,
+          description: c.description,
+        })),
+        cardThemes: Object.entries(CARD_VISUAL_THEMES).map(([key, t]) => ({
+          key,
+          name: t.name,
+          primary: t.primary,
+          secondary: t.secondary,
+        })),
+        cardEffects: Object.values(CARD_VISUAL_EFFECTS),
+      })
+    );
+  }
+
   if (
     urlPath === '/api/health' ||
     urlPath === '/health' ||
@@ -688,40 +725,25 @@ if (!token || token === 'your_bot_token_here' || token.includes('your_token')) {
       console.warn('[UOI Bot] Notice during guild memory sync:', memErr.message);
     }
 
-    // Apply Font 10 (Sinistre Vampyre) with Dark Orange & Dark Green Gradient Style across all servers
+    // 3. Restore & Apply Server Bot Styles (9 effects, 25 color themes + custom hex, role colors)
     try {
-      console.log('[UOI Bot] 🎨 Applying Font 10 (Sinistre) with Dark Orange & Dark Green Gradient...');
+      console.log('[UOI Bot] 🎨 Restoring server Bot Styles (25 themes, 9 effects, auto-role colors)...');
+      const db = loadDatabase();
       const guilds = await client.guilds.fetch();
       for (const [guildId, oauthGuild] of guilds) {
         try {
-          // 1. Try Discord display name styling (Max 2 colors strictly supported by Discord API)
-          await rest.patch(`/guilds/${guildId}/members/@me`, {
-            body: {
-              display_name_font_id: 10,
-              display_name_effect_id: 2,
-              display_name_colors: [0xd95700, 0x0d652d], // Dark Orange (#D95700) & Dark Green (#0D652D)
-            },
-          });
-          console.log(`[UOI Bot] 🎨 Applied Font 10 Two-Tone Gradient to: ${oauthGuild.name} (${guildId})`);
+          const fullGuild = await client.guilds.fetch(guildId).catch(() => null);
+          if (fullGuild) {
+            const savedStyle = db.guilds?.[guildId]?.botStyle || null;
+            await applyBotStyleToGuild(fullGuild, rest, savedStyle, client.user);
+            console.log(
+              `[UOI Bot] 🎨 Applied style to ${fullGuild.name} (${guildId}): ` +
+              `${savedStyle?.colorName || 'Indian Tricolor'} (${savedStyle?.effectName || 'Two-Tone Gradient'})`
+            );
+          }
         } catch (styleErr) {
           // Non-fatal if Discord Nitro/permission restriction occurs
         }
-
-        // 2. Also ensure bot's role color is colored Deep Saffron (#D95700) for guaranteed visibility in chat & member list
-        try {
-          const fullGuild = await client.guilds.fetch(guildId);
-          const botMember = fullGuild?.members?.me || await fullGuild?.members?.fetch(client.user.id);
-          if (botMember) {
-            const roleToColor = botMember.roles.cache
-              .filter((r) => r.editable && r.id !== guildId)
-              .sort((a, b) => b.position - a.position)
-              .first();
-            if (roleToColor && roleToColor.color !== 0xd95700) {
-              await roleToColor.setColor(0xd95700);
-              console.log(`[UOI Bot] 🎨 Auto-colored role @${roleToColor.name} to Saffron (#D95700) in ${fullGuild.name}`);
-            }
-          }
-        } catch (_) {}
       }
     } catch (styleErr) {
       console.warn('[UOI Bot] Name styling notice:', styleErr.message);
@@ -762,32 +784,12 @@ if (!token || token === 'your_bot_token_here' || token.includes('your_token')) {
       autoDetectAndSaveSetup(guild);
       console.log(`[UOI Bot] 🧠 Permanent memory saved for server: ${guild.name} (${guild.id})`);
 
-      // 2. Apply Font 10 styling (Max 2 colors)
+      // 2. Apply server-configured or default bot style
       const rest = new REST({ version: '10' }).setToken(token);
-      try {
-        await rest.patch(`/guilds/${guild.id}/members/@me`, {
-          body: {
-            display_name_font_id: 10,
-            display_name_effect_id: 2,
-            display_name_colors: [0xd95700, 0x0d652d],
-          },
-        });
-        console.log(`[UOI Bot] 🎨 Applied Font 10 Gradient to new server: ${guild.name}`);
-      } catch (_) {}
-
-      // 3. Set bot role color to Saffron
-      try {
-        const botMember = guild.members?.me || await guild.members?.fetch(client.user.id);
-        if (botMember) {
-          const roleToColor = botMember.roles.cache
-            .filter((r) => r.editable && r.id !== guild.id)
-            .sort((a, b) => b.position - a.position)
-            .first();
-          if (roleToColor && roleToColor.color !== 0xd95700) {
-            await roleToColor.setColor(0xd95700);
-          }
-        }
-      } catch (_) {}
+      const db = loadDatabase();
+      const savedStyle = db.guilds?.[guild.id]?.botStyle || null;
+      await applyBotStyleToGuild(guild, rest, savedStyle, client.user);
+      console.log(`[UOI Bot] 🎨 Applied bot styling to new server: ${guild.name}`);
     } catch (err) {
       console.warn(`[UOI Bot] Notice in new server handler ${guild.name}:`, err.message);
     }
